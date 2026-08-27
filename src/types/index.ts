@@ -102,6 +102,8 @@ export interface Transacao {
   categoria: TransacaoCategoria
   valor: number
   data: string
+  data_competencia?: string
+  data_vencimento?: string
   consolidado?: boolean
   venda?: string
   comissao?: string
@@ -130,6 +132,8 @@ export interface Despesa {
   categoria: DespesaCategoria
   valor: number
   data: string
+  data_competencia?: string
+  data_vencimento?: string
   recorrente: boolean
   frequencia?: DespesaFrequencia
   ativa: boolean

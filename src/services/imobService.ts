@@ -544,6 +544,8 @@ export const DespesaService = {
       categoria: record.categoria,
       valor: record.valor,
       data: record.data,
+      data_competencia: record.data_competencia || null,
+      data_vencimento: record.data_vencimento || null,
       consolidado: false,
       user: userId,
     })

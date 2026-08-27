@@ -72,6 +72,8 @@ export default function FluxoCaixa() {
   const [tCategoria, setTCategoria] = useState<TransacaoCategoria>('outros')
   const [tValor, setTValor] = useState<number | ''>('')
   const [tData, setTData] = useState(new Date().toISOString().split('T')[0])
+  const [tDataCompetencia, setTDataCompetencia] = useState('')
+  const [tDataVencimento, setTDataVencimento] = useState('')
   const [savingTransacao, setSavingTransacao] = useState(false)
 
   // Modal Nova Despesa
@@ -81,6 +83,8 @@ export default function FluxoCaixa() {
   const [dCategoria, setDCategoria] = useState<DespesaCategoria>('outros')
   const [dValor, setDValor] = useState<number | ''>('')
   const [dData, setDData] = useState(new Date().toISOString().split('T')[0])
+  const [dDataCompetencia, setDDataCompetencia] = useState('')
+  const [dDataVencimento, setDDataVencimento] = useState('')
   const [dRecorrente, setDRecorrente] = useState(true)
   const [dFrequencia, setDFrequencia] = useState<DespesaFrequencia>('mensal')
   const [dAtiva, setDAtiva] = useState(true)
@@ -181,6 +185,18 @@ export default function FluxoCaixa() {
     return months
   }, [transacoes])
 
+  // Reset do Modal de Transação Manual
+  const handleOpenCreateTransacao = () => {
+    setTTipo('entrada')
+    setTDescricao('')
+    setTCategoria('outros')
+    setTValor('')
+    setTData(new Date().toISOString().split('T')[0])
+    setTDataCompetencia('')
+    setTDataVencimento('')
+    setIsTransacaoModalOpen(true)
+  }
+
   // Nova Transação Manual
   const handleSaveTransacao = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -197,6 +213,12 @@ export default function FluxoCaixa() {
         categoria: tCategoria,
         valor: Number(tValor),
         data: new Date(tData + 'T12:00:00Z').toISOString(),
+        data_competencia: tDataCompetencia
+          ? new Date(tDataCompetencia + 'T12:00:00Z').toISOString()
+          : undefined,
+        data_vencimento: tDataVencimento
+          ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
+          : undefined,
         consolidado: false,
         user: user.id,
       })
@@ -204,6 +226,8 @@ export default function FluxoCaixa() {
       setIsTransacaoModalOpen(false)
       setTDescricao('')
       setTValor('')
+      setTDataCompetencia('')
+      setTDataVencimento('')
       loadData()
     } catch (err) {
       console.error(err)
@@ -215,11 +239,14 @@ export default function FluxoCaixa() {
 
   // Nova / Editar Despesa
   const handleOpenCreateDespesa = () => {
+    const today = new Date().toISOString().split('T')[0]
     setEditingDespesa(null)
     setDDescricao('')
     setDCategoria('aluguel')
     setDValor('')
-    setDData(new Date().toISOString().split('T')[0])
+    setDData(today)
+    setDDataCompetencia(today)
+    setDDataVencimento(today)
     setDRecorrente(true)
     setDFrequencia('mensal')
     setDAtiva(true)
@@ -232,6 +259,12 @@ export default function FluxoCaixa() {
     setDCategoria(d.categoria)
     setDValor(d.valor)
     setDData(new Date(d.data).toISOString().split('T')[0])
+    setDDataCompetencia(
+      d.data_competencia ? new Date(d.data_competencia).toISOString().split('T')[0] : '',
+    )
+    setDDataVencimento(
+      d.data_vencimento ? new Date(d.data_vencimento).toISOString().split('T')[0] : '',
+    )
     setDRecorrente(d.recorrente)
     setDFrequencia(d.frequencia || 'mensal')
     setDAtiva(d.ativa)
@@ -247,30 +280,27 @@ export default function FluxoCaixa() {
 
     setSavingDespesa(true)
     try {
+      const payload = {
+        descricao: dDescricao,
+        categoria: dCategoria,
+        valor: Number(dValor),
+        data: new Date(dData + 'T12:00:00Z').toISOString(),
+        data_competencia: dDataCompetencia
+          ? new Date(dDataCompetencia + 'T12:00:00Z').toISOString()
+          : undefined,
+        data_vencimento: dDataVencimento
+          ? new Date(dDataVencimento + 'T12:00:00Z').toISOString()
+          : undefined,
+        recorrente: dRecorrente,
+        frequencia: dRecorrente ? dFrequencia : undefined,
+        ativa: dAtiva,
+      }
+
       if (editingDespesa) {
-        await DespesaService.update(editingDespesa.id, {
-          descricao: dDescricao,
-          categoria: dCategoria,
-          valor: Number(dValor),
-          data: new Date(dData + 'T12:00:00Z').toISOString(),
-          recorrente: dRecorrente,
-          frequencia: dRecorrente ? dFrequencia : undefined,
-          ativa: dAtiva,
-        })
+        await DespesaService.update(editingDespesa.id, payload)
         toast.success('Despesa atualizada com sucesso!')
       } else {
-        await DespesaService.create(
-          {
-            descricao: dDescricao,
-            categoria: dCategoria,
-            valor: Number(dValor),
-            data: new Date(dData + 'T12:00:00Z').toISOString(),
-            recorrente: dRecorrente,
-            frequencia: dRecorrente ? dFrequencia : undefined,
-            ativa: dAtiva,
-          },
-          user.id,
-        )
+        await DespesaService.create(payload, user.id)
         toast.success('Despesa cadastrada e transação de saída gerada!')
       }
       setIsDespesaModalOpen(false)
@@ -313,7 +343,7 @@ export default function FluxoCaixa() {
         <div className="flex items-center gap-2">
           {activeTab === 'transacoes' ? (
             <Button
-              onClick={() => setIsTransacaoModalOpen(true)}
+              onClick={handleOpenCreateTransacao}
               className="bg-[#E63946] hover:bg-[#D62839] text-white font-semibold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2"
             >
               <Plus className="w-4 h-4" />
@@ -513,7 +543,9 @@ export default function FluxoCaixa() {
                     <th className="py-3.5 px-4">Tipo</th>
                     <th className="py-3.5 px-4">Descrição</th>
                     <th className="py-3.5 px-4">Categoria</th>
-                    <th className="py-3.5 px-4">Data</th>
+                    <th className="py-3.5 px-4">Data Registro</th>
+                    <th className="py-3.5 px-4">Competência</th>
+                    <th className="py-3.5 px-4">Vencimento</th>
                     <th className="py-3.5 px-4 text-center">Consolidado</th>
                     <th className="py-3.5 px-4 text-right">Valor</th>
                   </tr>
@@ -537,12 +569,26 @@ export default function FluxoCaixa() {
                           {t.tipo}
                         </span>
                       </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-100 max-w-[320px]">
+                      <td className="py-3.5 px-4 font-semibold text-slate-100 max-w-[260px]">
                         {t.descricao}
                       </td>
                       <td className="py-3.5 px-4 text-slate-300 capitalize">{t.categoria}</td>
-                      <td className="py-3.5 px-4 text-slate-400">
+                      <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
                         {new Date(t.data).toLocaleDateString('pt-BR')}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                        {t.data_competencia ? (
+                          new Date(t.data_competencia).toLocaleDateString('pt-BR')
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                        {t.data_vencimento ? (
+                          new Date(t.data_vencimento).toLocaleDateString('pt-BR')
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
                       </td>
                       <td className="py-3.5 px-4 text-center">
                         {t.consolidado ? (
@@ -554,7 +600,7 @@ export default function FluxoCaixa() {
                         )}
                       </td>
                       <td
-                        className={`py-3.5 px-4 text-right font-bold text-sm tabular-nums ${
+                        className={`py-3.5 px-4 text-right font-bold text-sm tabular-nums whitespace-nowrap ${
                           t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'
                         }`}
                       >
@@ -565,7 +611,7 @@ export default function FluxoCaixa() {
 
                   {transacoesPeriodo.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-500">
+                      <td colSpan={8} className="py-12 text-center text-slate-500">
                         Nenhuma transação encontrada no período.
                       </td>
                     </tr>
@@ -587,7 +633,10 @@ export default function FluxoCaixa() {
                   <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
                     <th className="py-3.5 px-4">Descrição</th>
                     <th className="py-3.5 px-4">Categoria</th>
-                    <th className="py-3.5 px-4">Recorrência & Ciclo</th>
+                    <th className="py-3.5 px-4">Data Registro</th>
+                    <th className="py-3.5 px-4">Competência</th>
+                    <th className="py-3.5 px-4">Vencimento</th>
+                    <th className="py-3.5 px-4">Recorrência</th>
                     <th className="py-3.5 px-4 text-center">Status</th>
                     <th className="py-3.5 px-4 text-right">Valor</th>
                     <th className="py-3.5 px-4 text-right">Ações</th>
@@ -598,6 +647,23 @@ export default function FluxoCaixa() {
                     <tr key={d.id} className="hover:bg-[#1A2234]/50 transition-colors">
                       <td className="py-3.5 px-4 font-semibold text-slate-100">{d.descricao}</td>
                       <td className="py-3.5 px-4 text-slate-300 capitalize">{d.categoria}</td>
+                      <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
+                        {d.data ? new Date(d.data).toLocaleDateString('pt-BR') : '—'}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                        {d.data_competencia ? (
+                          new Date(d.data_competencia).toLocaleDateString('pt-BR')
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                        {d.data_vencimento ? (
+                          new Date(d.data_vencimento).toLocaleDateString('pt-BR')
+                        ) : (
+                          <span className="text-slate-500">—</span>
+                        )}
+                      </td>
                       <td className="py-3.5 px-4">
                         {d.recorrente ? (
                           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/25 capitalize">
@@ -618,7 +684,7 @@ export default function FluxoCaixa() {
                           </span>
                         )}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-bold text-red-400 text-sm tabular-nums">
+                      <td className="py-3.5 px-4 text-right font-bold text-red-400 text-sm tabular-nums whitespace-nowrap">
                         {formatCurrency(d.valor)}
                       </td>
                       <td className="py-3.5 px-4 text-right">
@@ -646,7 +712,7 @@ export default function FluxoCaixa() {
 
                   {despesas.length === 0 && (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center text-slate-500">
+                      <td colSpan={9} className="py-12 text-center text-slate-500">
                         Nenhuma despesa cadastrada.
                       </td>
                     </tr>
@@ -750,7 +816,9 @@ export default function FluxoCaixa() {
             </div>
 
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">Data</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Data do Registro / Lançamento *
+              </label>
               <Input
                 type="date"
                 value={tData}
@@ -758,6 +826,40 @@ export default function FluxoCaixa() {
                 className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
               />
             </div>
+
+            {tTipo === 'saida' && (
+              <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Data de Competência
+                  </label>
+                  <p className="text-[10px] text-slate-400 mb-1.5">
+                    Quando o gasto ocorreu de fato
+                  </p>
+                  <Input
+                    type="date"
+                    value={tDataCompetencia}
+                    onChange={(e) => setTDataCompetencia(e.target.value)}
+                    className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Data de Vencimento
+                  </label>
+                  <p className="text-[10px] text-slate-400 mb-1.5">
+                    Quando a despesa vence/precisa ser paga
+                  </p>
+                  <Input
+                    type="date"
+                    value={tDataVencimento}
+                    onChange={(e) => setTDataVencimento(e.target.value)}
+                    className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                  />
+                </div>
+              </div>
+            )}
 
             <DialogFooter className="pt-2">
               <Button
@@ -844,7 +946,7 @@ export default function FluxoCaixa() {
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Data de Vencimento / Início
+                Data do Registro *
               </label>
               <Input
                 type="date"
@@ -852,6 +954,34 @@ export default function FluxoCaixa() {
                 onChange={(e) => setDData(e.target.value)}
                 className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
               />
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Data de Competência
+                </label>
+                <p className="text-[10px] text-slate-400 mb-1.5">Quando o gasto ocorreu de fato</p>
+                <Input
+                  type="date"
+                  value={dDataCompetencia}
+                  onChange={(e) => setDDataCompetencia(e.target.value)}
+                  className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Data de Vencimento
+                </label>
+                <p className="text-[10px] text-slate-400 mb-1.5">Quando vence / precisa ser paga</p>
+                <Input
+                  type="date"
+                  value={dDataVencimento}
+                  onChange={(e) => setDDataVencimento(e.target.value)}
+                  className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                />
+              </div>
             </div>
 
             <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
