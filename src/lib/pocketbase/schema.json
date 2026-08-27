@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T18:47:39.516Z",
+  "generatedAt": "2026-08-27T18:54:13.116Z",
   "collections": [
     {
       "name": "users",
@@ -461,6 +461,18 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "data_competencia",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_vencimento",
+          "type": "date",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -549,6 +561,18 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "data_competencia",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "data_vencimento",
+          "type": "date",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": []

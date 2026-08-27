@@ -27,7 +27,7 @@ import {
   DespesaFrequencia,
 } from '@/types'
 import { useAuth } from '@/context/AuthContext'
-import { usePeriodo } from '@/context/PeriodoContext'
+import { usePeriodo, MESES_NOMES } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
@@ -185,6 +185,40 @@ export default function FluxoCaixa() {
     return months
   }, [transacoes])
 
+  // Converte data ISO/string de competência em número do mês (1-12) em string ("1" a "12") ou vazio ""
+  const getMesFromDate = (dateStr?: string | null): string => {
+    if (!dateStr) return ''
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return ''
+    return String(d.getUTCMonth() + 1)
+  }
+
+  // Converte o mês selecionado (1 a 12) em ISO string usando o ano base da transação/despesa ou ano corrente
+  const buildCompetenciaIso = (mesStr: string, refDateStr?: string): string | undefined => {
+    if (!mesStr) return undefined
+    const mesNum = parseInt(mesStr, 10)
+    if (isNaN(mesNum) || mesNum < 1 || mesNum > 12) return undefined
+
+    let ano = new Date().getFullYear()
+    if (refDateStr) {
+      const refDate = new Date(refDateStr)
+      if (!isNaN(refDate.getTime())) {
+        ano = refDate.getFullYear()
+      }
+    }
+    const mesIdx = mesNum - 1
+    return new Date(Date.UTC(ano, mesIdx, 1, 12, 0, 0)).toISOString()
+  }
+
+  // Formata a exibição da competência na tabela como nome do mês (ex: Janeiro)
+  const formatCompetencia = (dateStr?: string | null): string => {
+    if (!dateStr) return '—'
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) return '—'
+    const mesIdx = d.getUTCMonth()
+    return MESES_NOMES[mesIdx] || '—'
+  }
+
   // Reset do Modal de Transação Manual
   const handleOpenCreateTransacao = () => {
     setTTipo('entrada')
@@ -207,18 +241,20 @@ export default function FluxoCaixa() {
 
     setSavingTransacao(true)
     try {
+      const competenciaIso =
+        tTipo === 'saida' ? buildCompetenciaIso(tDataCompetencia, tData) : undefined
+
       await TransacaoService.create({
         tipo: tTipo,
         descricao: tDescricao,
         categoria: tCategoria,
         valor: Number(tValor),
         data: new Date(tData + 'T12:00:00Z').toISOString(),
-        data_competencia: tDataCompetencia
-          ? new Date(tDataCompetencia + 'T12:00:00Z').toISOString()
-          : undefined,
-        data_vencimento: tDataVencimento
-          ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
-          : undefined,
+        data_competencia: competenciaIso,
+        data_vencimento:
+          tTipo === 'saida' && tDataVencimento
+            ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
+            : undefined,
         consolidado: false,
         user: user.id,
       })
@@ -245,7 +281,7 @@ export default function FluxoCaixa() {
     setDCategoria('aluguel')
     setDValor('')
     setDData(today)
-    setDDataCompetencia(today)
+    setDDataCompetencia('')
     setDDataVencimento(today)
     setDRecorrente(true)
     setDFrequencia('mensal')
@@ -259,9 +295,7 @@ export default function FluxoCaixa() {
     setDCategoria(d.categoria)
     setDValor(d.valor)
     setDData(new Date(d.data).toISOString().split('T')[0])
-    setDDataCompetencia(
-      d.data_competencia ? new Date(d.data_competencia).toISOString().split('T')[0] : '',
-    )
+    setDDataCompetencia(getMesFromDate(d.data_competencia))
     setDDataVencimento(
       d.data_vencimento ? new Date(d.data_vencimento).toISOString().split('T')[0] : '',
     )
@@ -280,14 +314,14 @@ export default function FluxoCaixa() {
 
     setSavingDespesa(true)
     try {
+      const competenciaIso = buildCompetenciaIso(dDataCompetencia, dData)
+
       const payload = {
         descricao: dDescricao,
         categoria: dCategoria,
         valor: Number(dValor),
         data: new Date(dData + 'T12:00:00Z').toISOString(),
-        data_competencia: dDataCompetencia
-          ? new Date(dDataCompetencia + 'T12:00:00Z').toISOString()
-          : undefined,
+        data_competencia: competenciaIso,
         data_vencimento: dDataVencimento
           ? new Date(dDataVencimento + 'T12:00:00Z').toISOString()
           : undefined,
@@ -578,7 +612,7 @@ export default function FluxoCaixa() {
                       </td>
                       <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
                         {t.data_competencia ? (
-                          new Date(t.data_competencia).toLocaleDateString('pt-BR')
+                          formatCompetencia(t.data_competencia)
                         ) : (
                           <span className="text-slate-500">—</span>
                         )}
@@ -652,7 +686,7 @@ export default function FluxoCaixa() {
                       </td>
                       <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
                         {d.data_competencia ? (
-                          new Date(d.data_competencia).toLocaleDateString('pt-BR')
+                          formatCompetencia(d.data_competencia)
                         ) : (
                           <span className="text-slate-500">—</span>
                         )}
@@ -834,14 +868,20 @@ export default function FluxoCaixa() {
                     Data de Competência
                   </label>
                   <p className="text-[10px] text-slate-400 mb-1.5">
-                    Quando o gasto ocorreu de fato
+                    Mês em que o gasto ocorreu de fato
                   </p>
-                  <Input
-                    type="date"
+                  <select
                     value={tDataCompetencia}
                     onChange={(e) => setTDataCompetencia(e.target.value)}
-                    className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
-                  />
+                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
+                  >
+                    <option value="">Selecione o mês (opcional)</option>
+                    {MESES_NOMES.map((nome, idx) => (
+                      <option key={idx + 1} value={String(idx + 1)}>
+                        {nome}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 <div>
@@ -961,13 +1001,21 @@ export default function FluxoCaixa() {
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Data de Competência
                 </label>
-                <p className="text-[10px] text-slate-400 mb-1.5">Quando o gasto ocorreu de fato</p>
-                <Input
-                  type="date"
+                <p className="text-[10px] text-slate-400 mb-1.5">
+                  Mês em que o gasto ocorreu de fato
+                </p>
+                <select
                   value={dDataCompetencia}
                   onChange={(e) => setDDataCompetencia(e.target.value)}
-                  className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
-                />
+                  className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
+                >
+                  <option value="">Selecione o mês (opcional)</option>
+                  {MESES_NOMES.map((nome, idx) => (
+                    <option key={idx + 1} value={String(idx + 1)}>
+                      {nome}
+                    </option>
+                  ))}
+                </select>
               </div>
 
               <div>
