@@ -62,7 +62,7 @@ export const ConfigService = {
   },
 }
 
-// Vendas Service with automatic commission distribution
+// Vendas Service with automatic commission distribution & cashflow integration
 export const VendaService = {
   async getAll(filter?: string): Promise<Venda[]> {
     return await pb.collection('vendas').getFullList<Venda>({
@@ -83,11 +83,16 @@ export const VendaService = {
     captador?: string
     valor_vgv: number
     percentual_comissao: number
+    situacao_recebimento: 'Recebido' | 'Parcial'
+    valor_recebido?: number
     data_venda: string
     status: 'realizada' | 'pendente' | 'cancelada'
     userId: string
   }): Promise<Venda> {
     const valor_comissao = (data.valor_vgv * data.percentual_comissao) / 100
+    const situacao = data.situacao_recebimento || 'Recebido'
+    const valorRecebido =
+      situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao)
 
     const record = await pb.collection('vendas').create<Venda>({
       titulo_imovel: data.titulo_imovel,
@@ -97,117 +102,265 @@ export const VendaService = {
       valor_vgv: data.valor_vgv,
       percentual_comissao: data.percentual_comissao,
       valor_comissao,
+      situacao_recebimento: situacao,
+      valor_recebido: valorRecebido,
       data_venda: data.data_venda,
       status: data.status,
       user: data.userId,
     })
 
-    // If status is "realizada", automatically create commissions
-    if (data.status === 'realizada') {
-      await this.generateCommissions(
-        record.id,
-        valor_comissao,
-        data.corretor,
-        data.captador,
-        data.userId,
-      )
+    // Processar financeiro se realizada ou com valor recebido > 0
+    if (data.status === 'realizada' && valorRecebido > 0) {
+      await this.processarRecebimentoVenda({
+        vendaId: record.id,
+        tituloImovel: data.titulo_imovel,
+        clienteNome: data.cliente,
+        corretorId: data.corretor,
+        captadorId: data.captador,
+        valorBase: valorRecebido,
+        valorTotalComissao: valor_comissao,
+        dataVenda: data.data_venda,
+        userId: data.userId,
+        ehComplementar: false,
+      })
     }
 
     return record
   },
-  async update(id: string, data: Partial<Venda>, userId: string): Promise<Venda> {
-    const prev = await pb.collection('vendas').getOne<Venda>(id)
+  async update(
+    id: string,
+    data: Partial<Venda> & {
+      situacao_recebimento?: 'Recebido' | 'Parcial'
+      valor_recebido?: number
+    },
+    userId: string,
+  ): Promise<Venda> {
+    const prev = await pb.collection('vendas').getOne<Venda>(id, {
+      expand: 'corretor,captador',
+    })
     const valor_vgv = data.valor_vgv !== undefined ? data.valor_vgv : prev.valor_vgv
     const percentual_comissao =
       data.percentual_comissao !== undefined ? data.percentual_comissao : prev.percentual_comissao
     const valor_comissao = (valor_vgv * percentual_comissao) / 100
 
+    const situacao = data.situacao_recebimento ?? prev.situacao_recebimento ?? 'Recebido'
+    let novoValorRecebido =
+      situacao === 'Recebido'
+        ? valor_comissao
+        : Number(data.valor_recebido ?? prev.valor_recebido ?? valor_comissao)
+
+    const prevValorRecebido = Number(
+      prev.valor_recebido ?? (prev.situacao_recebimento === 'Parcial' ? 0 : prev.valor_comissao),
+    )
+    const diferencaRecebida = novoValorRecebido - prevValorRecebido
+
     const updated = await pb.collection('vendas').update<Venda>(id, {
       ...data,
       valor_comissao,
+      situacao_recebimento: situacao,
+      valor_recebido: novoValorRecebido,
     })
 
-    // If newly marked as realizada and had no commissions
-    if (updated.status === 'realizada' && prev.status !== 'realizada') {
-      const existingComms = await pb
-        .collection('comissoes')
-        .getFullList({ filter: `venda = "${id}"` })
-      if (existingComms.length === 0) {
-        await this.generateCommissions(
-          id,
-          valor_comissao,
-          updated.corretor,
-          updated.captador,
-          userId,
-        )
-      }
+    const statusNovo = data.status ?? prev.status
+    const corretorId = data.corretor ?? prev.corretor
+    const captadorId = data.captador !== undefined ? data.captador : prev.captador
+    const titulo = data.titulo_imovel ?? prev.titulo_imovel
+    const cliente = data.cliente ?? prev.cliente
+    const dataVenda = data.data_venda ?? prev.data_venda
+
+    // Se antes não era realizada e agora virou realizada
+    if (statusNovo === 'realizada' && prev.status !== 'realizada' && novoValorRecebido > 0) {
+      await this.processarRecebimentoVenda({
+        vendaId: id,
+        tituloImovel: titulo,
+        clienteNome: cliente,
+        corretorId,
+        captadorId,
+        valorBase: novoValorRecebido,
+        valorTotalComissao: valor_comissao,
+        dataVenda,
+        userId,
+        ehComplementar: false,
+      })
+    } else if (statusNovo === 'realizada' && diferencaRecebida > 0) {
+      // Edição de venda que aumentou o valor recebido: gerar fluxos sobre a diferença
+      await this.processarRecebimentoVenda({
+        vendaId: id,
+        tituloImovel: titulo,
+        clienteNome: cliente,
+        corretorId,
+        captadorId,
+        valorBase: diferencaRecebida,
+        valorTotalComissao: valor_comissao,
+        dataVenda,
+        userId,
+        ehComplementar: true,
+      })
     }
 
     return updated
   },
   async delete(id: string): Promise<boolean> {
-    // Check if any commission was received or paid
-    const commissions = await pb.collection('comissoes').getFullList<Comissao>({
-      filter: `venda = "${id}"`,
-    })
+    // Delete associated transactions and commissions
+    const [transacoes, commissions] = await Promise.all([
+      pb.collection('transacoes').getFullList<Transacao>({ filter: `venda = "${id}"` }),
+      pb.collection('comissoes').getFullList<Comissao>({ filter: `venda = "${id}"` }),
+    ])
 
-    const hasPaidOrReceived = commissions.some(
-      (c) => c.status === 'recebida' || c.status === 'paga',
-    )
-    if (hasPaidOrReceived) {
-      throw new Error('Não é possível excluir venda com comissões já recebidas ou pagas.')
+    for (const t of transacoes) {
+      await pb.collection('transacoes').delete(t.id)
     }
 
-    // Delete associated commissions
     for (const c of commissions) {
       await pb.collection('comissoes').delete(c.id)
     }
 
     return await pb.collection('vendas').delete(id)
   },
-  async generateCommissions(
-    vendaId: string,
-    valor_comissao: number,
-    corretorId: string,
-    captadorId?: string,
-    userId?: string,
-  ) {
+  async processarRecebimentoVenda(params: {
+    vendaId: string
+    tituloImovel: string
+    clienteNome?: string
+    corretorId: string
+    captadorId?: string
+    valorBase: number // valor recebido efetivamente (ou parcela complementar)
+    valorTotalComissao: number
+    dataVenda: string
+    userId: string
+    ehComplementar?: boolean
+  }) {
+    const {
+      vendaId,
+      tituloImovel,
+      corretorId,
+      captadorId,
+      valorBase,
+      dataVenda,
+      userId,
+      ehComplementar,
+    } = params
+
+    if (valorBase <= 0) return
+
     let config: Configuracoes | null = null
     if (userId) {
       config = await ConfigService.getForUser(userId)
     }
 
+    // Percentuais padrão: Imobiliária 50%, Corretor 40%, Captador 10%, Imposto 6%
     const pctImob = config?.percentual_imobiliaria ?? 50
     const hasCaptador = Boolean(captadorId && captadorId.trim().length > 0)
     const pctCorr = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob
     const pctCapt = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+    const pctImposto = 6
 
-    const valImob = (valor_comissao * pctImob) / 100
-    const valCorr = (valor_comissao * pctCorr) / 100
-    const valCapt = hasCaptador ? (valor_comissao * pctCapt) / 100 : 0
+    const valCorr = (valorBase * pctCorr) / 100
+    const valCapt = hasCaptador ? (valorBase * pctCapt) / 100 : 0
+    const valImposto = (valorBase * pctImposto) / 100
+    const valImobTotal = (valorBase * pctImob) / 100
+    const valImobLiquido = valorBase - valCorr - valCapt - valImposto
 
-    // 1. Imobiliaria commission
+    const dataIso = dataVenda || new Date().toISOString()
+    const prefixoDesc = ehComplementar
+      ? 'Recebimento complementar comissão'
+      : 'Recebimento comissão'
+
+    // Obter dados do corretor para descrição legível
+    let corretorNome = 'Corretor'
+    let captadorNome = 'Captador'
+    try {
+      if (corretorId) {
+        const cRec = await pb.collection('corretores').getOne<Corretor>(corretorId)
+        corretorNome = cRec.nome
+      }
+      if (captadorId) {
+        const captRec = await pb.collection('corretores').getOne<Corretor>(captadorId)
+        captadorNome = captRec.nome
+      }
+    } catch {
+      /* intentionally ignored */
+    }
+
+    // 1. Criar UMA transação de Entrada (categoria "comissao") com o valor recebido
+    await pb.collection('transacoes').create({
+      tipo: 'entrada',
+      descricao: `${prefixoDesc} - ${tituloImovel}`,
+      categoria: 'comissao',
+      valor: valorBase,
+      data: dataIso,
+      consolidado: false,
+      venda: vendaId,
+      user: userId,
+    })
+
+    // 2. Gerar Saída Pendente para Corretor (40% ou configurado)
+    if (valCorr > 0) {
+      await pb.collection('transacoes').create({
+        tipo: 'saida',
+        descricao: `Repasse comissão corretor (${corretorNome}) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+        categoria: 'repasse',
+        valor: valCorr,
+        data: dataIso,
+        consolidado: false,
+        venda: vendaId,
+        user: userId,
+      })
+    }
+
+    // 3. Gerar Saída Pendente para Captador (10% ou configurado)
+    if (hasCaptador && valCapt > 0) {
+      await pb.collection('transacoes').create({
+        tipo: 'saida',
+        descricao: `Repasse comissão captador (${captadorNome}) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+        categoria: 'repasse',
+        valor: valCapt,
+        data: dataIso,
+        consolidado: false,
+        venda: vendaId,
+        user: userId,
+      })
+    }
+
+    // 4. Gerar Saída Pendente de Imposto (6%)
+    if (valImposto > 0) {
+      await pb.collection('transacoes').create({
+        tipo: 'saida',
+        descricao: `Imposto Simples Nacional (6%) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+        categoria: 'imposto',
+        valor: valImposto,
+        data: dataIso,
+        consolidado: false,
+        venda: vendaId,
+        user: userId,
+      })
+    }
+
+    // 5. Registrar também em comissoes para histórico e relatórios de comissão
+    // Imobiliária
     await pb.collection('comissoes').create({
       venda: vendaId,
       parte: 'imobiliaria',
       percentual: pctImob,
-      valor: valImob,
-      status: 'pendente',
+      valor: valImobTotal,
+      status: 'recebida',
+      data_recebimento: dataIso,
       user: userId,
     })
 
-    // 2. Corretor commission
-    await pb.collection('comissoes').create({
-      venda: vendaId,
-      parte: 'corretor',
-      corretor: corretorId,
-      percentual: pctCorr,
-      valor: valCorr,
-      status: 'pendente',
-      user: userId,
-    })
+    // Corretor
+    if (valCorr > 0) {
+      await pb.collection('comissoes').create({
+        venda: vendaId,
+        parte: 'corretor',
+        corretor: corretorId,
+        percentual: pctCorr,
+        valor: valCorr,
+        status: 'pendente',
+        user: userId,
+      })
+    }
 
-    // 3. Captador commission
+    // Captador
     if (hasCaptador && valCapt > 0) {
       await pb.collection('comissoes').create({
         venda: vendaId,

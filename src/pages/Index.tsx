@@ -310,7 +310,9 @@ export default function Dashboard() {
         if (v.corretor && map[v.corretor]) {
           map[v.corretor].vgv += v.valor_vgv
           map[v.corretor].count += 1
-          map[v.corretor].comissao += v.valor_comissao * 0.4 // estimativa repasse
+          const sit = v.situacao_recebimento || 'Recebido'
+          const valorBase = v.valor_recebido ?? (sit === 'Recebido' ? v.valor_comissao : 0)
+          map[v.corretor].comissao += valorBase * (v.captador ? 0.4 : 0.5)
         }
       })
 

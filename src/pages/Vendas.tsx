@@ -2,24 +2,24 @@ import React, { useState, useEffect, useMemo } from 'react'
 import {
   Plus,
   Search,
-  Filter,
   ArrowUpDown,
-  MoreVertical,
   Trash2,
   Edit2,
   TrendingUp,
   Building,
   User,
-  Calendar,
-  DollarSign,
   AlertCircle,
   CheckCircle2,
   Clock,
   XCircle,
   Loader2,
+  Layers,
+  Receipt,
+  PieChart as PieChartIcon,
+  HelpCircle,
 } from 'lucide-react'
 import { VendaService, CorretorService, ConfigService } from '@/services/imobService'
-import { Venda, Corretor, VendaStatus, Configuracoes } from '@/types'
+import { Venda, Corretor, VendaStatus, Configuracoes, SituacaoRecebimento } from '@/types'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
@@ -32,12 +32,6 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import { toast } from 'sonner'
 
 export default function Vendas() {
@@ -51,6 +45,7 @@ export default function Vendas() {
   // Filtros & Busca
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('todos')
+  const [recebimentoFilter, setRecebimentoFilter] = useState<string>('todos')
   const [sortField, setSortField] = useState<'data_venda' | 'valor_vgv'>('data_venda')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
 
@@ -66,6 +61,11 @@ export default function Vendas() {
   const [formCaptador, setFormCaptador] = useState('')
   const [formVgv, setFormVgv] = useState<number | ''>('')
   const [formPctComissao, setFormPctComissao] = useState<number>(6)
+  const [formValorComissaoManual, setFormValorComissaoManual] = useState<number | ''>('')
+  const [isComissaoManual, setIsComissaoManual] = useState(false)
+  const [formSituacaoRecebimento, setFormSituacaoRecebimento] =
+    useState<SituacaoRecebimento>('Recebido')
+  const [formValorRecebido, setFormValorRecebido] = useState<number | ''>('')
   const [formDataVenda, setFormDataVenda] = useState(new Date().toISOString().split('T')[0])
   const [formStatus, setFormStatus] = useState<VendaStatus>('realizada')
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -113,6 +113,12 @@ export default function Vendas() {
         // Status
         if (statusFilter !== 'todos' && v.status !== statusFilter) return false
 
+        // Situação do Recebimento
+        if (recebimentoFilter !== 'todos') {
+          const sit = v.situacao_recebimento || 'Recebido'
+          if (sit !== recebimentoFilter) return false
+        }
+
         // Busca
         if (searchTerm.trim()) {
           const term = searchTerm.toLowerCase()
@@ -132,20 +138,37 @@ export default function Vendas() {
           return sortDirection === 'asc' ? a.valor_vgv - b.valor_vgv : b.valor_vgv - a.valor_vgv
         }
       })
-  }, [vendas, start, end, statusFilter, searchTerm, sortField, sortDirection])
+  }, [vendas, start, end, statusFilter, recebimentoFilter, searchTerm, sortField, sortDirection])
 
-  // Cálculo prévia da divisão ao vivo
+  // Cálculo da comissão total
   const vgvNumber = typeof formVgv === 'number' ? formVgv : 0
-  const valorComissaoPreview = (vgvNumber * formPctComissao) / 100
+  const valorComissaoCalculado =
+    isComissaoManual && typeof formValorComissaoManual === 'number'
+      ? formValorComissaoManual
+      : (vgvNumber * formPctComissao) / 100
 
-  const pctImob = config?.percentual_imobiliaria ?? 50
+  // Base efetiva de cálculo sobre o que a imobiliária recebeu
+  const valorBaseCalculo = useMemo(() => {
+    if (formSituacaoRecebimento === 'Recebido') {
+      return valorComissaoCalculado
+    }
+    return typeof formValorRecebido === 'number' ? formValorRecebido : 0
+  }, [formSituacaoRecebimento, valorComissaoCalculado, formValorRecebido])
+
+  // Percentuais configurados
+  const pctImobConfig = config?.percentual_imobiliaria ?? 50
   const hasCaptador = Boolean(formCaptador && formCaptador.trim().length > 0)
-  const pctCorr = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob
-  const pctCapt = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+  const pctCorrConfig = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImobConfig
+  const pctCaptConfig = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+  const pctImpostoConfig = 6 // Imposto fixo de 6% sobre o recebido
 
-  const valImob = (valorComissaoPreview * pctImob) / 100
-  const valCorr = (valorComissaoPreview * pctCorr) / 100
-  const valCapt = hasCaptador ? (valorComissaoPreview * pctCapt) / 100 : 0
+  // Valores calculados sobre a base recebida
+  const valCorr = (valorBaseCalculo * pctCorrConfig) / 100
+  const valCapt = hasCaptador ? (valorBaseCalculo * pctCaptConfig) / 100 : 0
+  const valImposto = (valorBaseCalculo * pctImpostoConfig) / 100
+  // Líquido Alfa: valor recebido - 40% corretor - 10% captador - 6% imposto = 44% (ex: 8.800 de 20.000)
+  const valImobLiquido = valorBaseCalculo - valCorr - valCapt - valImposto
+  const valImobBruto = (valorBaseCalculo * pctImobConfig) / 100
 
   const handleOpenCreateModal = () => {
     setEditingVenda(null)
@@ -155,6 +178,10 @@ export default function Vendas() {
     setFormCaptador('')
     setFormVgv('')
     setFormPctComissao(config?.percentual_comissao_padrao ?? 6)
+    setIsComissaoManual(false)
+    setFormValorComissaoManual('')
+    setFormSituacaoRecebimento('Recebido')
+    setFormValorRecebido('')
     setFormDataVenda(new Date().toISOString().split('T')[0])
     setFormStatus('realizada')
     setFormErrors({})
@@ -169,6 +196,11 @@ export default function Vendas() {
     setFormCaptador(venda.captador || '')
     setFormVgv(venda.valor_vgv)
     setFormPctComissao(venda.percentual_comissao)
+    setIsComissaoManual(false)
+    setFormValorComissaoManual(venda.valor_comissao)
+    const sit = venda.situacao_recebimento || 'Recebido'
+    setFormSituacaoRecebimento(sit)
+    setFormValorRecebido(venda.valor_recebido ?? (sit === 'Recebido' ? venda.valor_comissao : ''))
     setFormDataVenda(new Date(venda.data_venda).toISOString().split('T')[0])
     setFormStatus(venda.status)
     setFormErrors({})
@@ -182,6 +214,15 @@ export default function Vendas() {
     if (!formVgv || Number(formVgv) <= 0) errs.vgv = 'Informe um valor de VGV válido'
     if (!formPctComissao || formPctComissao <= 0) errs.comissao = 'Informe o percentual'
     if (!formDataVenda) errs.data = 'Informe a data da venda'
+
+    if (formSituacaoRecebimento === 'Parcial') {
+      if (formValorRecebido === '' || Number(formValorRecebido) <= 0) {
+        errs.valorRecebido = 'Informe o valor efetivamente recebido nesta etapa'
+      } else if (Number(formValorRecebido) > valorComissaoCalculado) {
+        errs.valorRecebido = 'O valor recebido não pode ser maior que a comissão total'
+      }
+    }
+
     setFormErrors(errs)
     return Object.keys(errs).length === 0
   }
@@ -193,6 +234,8 @@ export default function Vendas() {
     setSaving(true)
     try {
       const dataIso = new Date(formDataVenda + 'T12:00:00Z').toISOString()
+      const valRecFinal =
+        formSituacaoRecebimento === 'Recebido' ? valorComissaoCalculado : Number(formValorRecebido)
 
       if (editingVenda) {
         await VendaService.update(
@@ -204,6 +247,8 @@ export default function Vendas() {
             captador: formCaptador || undefined,
             valor_vgv: Number(formVgv),
             percentual_comissao: formPctComissao,
+            situacao_recebimento: formSituacaoRecebimento,
+            valor_recebido: valRecFinal,
             data_venda: dataIso,
             status: formStatus,
           },
@@ -218,11 +263,13 @@ export default function Vendas() {
           captador: formCaptador || undefined,
           valor_vgv: Number(formVgv),
           percentual_comissao: formPctComissao,
+          situacao_recebimento: formSituacaoRecebimento,
+          valor_recebido: valRecFinal,
           data_venda: dataIso,
           status: formStatus,
           userId: user.id,
         })
-        toast.success('Venda cadastrada e comissões geradas automaticamente!')
+        toast.success('Venda cadastrada e fluxos financeiros gerados com sucesso!')
       }
       setIsModalOpen(false)
       loadData()
@@ -239,7 +286,7 @@ export default function Vendas() {
     setDeleting(true)
     try {
       await VendaService.delete(deleteId)
-      toast.success('Venda e comissões pendentes excluídas com sucesso!')
+      toast.success('Venda e transações vinculadas excluídas com sucesso!')
       setDeleteId(null)
       loadData()
     } catch (err: any) {
@@ -276,6 +323,21 @@ export default function Vendas() {
     }
   }
 
+  const getSituacaoBadge = (sit?: SituacaoRecebimento) => {
+    if (sit === 'Parcial') {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+          <Clock className="w-3 h-3" /> Parcial
+        </span>
+      )
+    }
+    return (
+      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+        <CheckCircle2 className="w-3 h-3" /> Recebido Total
+      </span>
+    )
+  }
+
   return (
     <div className="space-y-6">
       {/* Top Header Controls */}
@@ -283,7 +345,8 @@ export default function Vendas() {
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight">Gestão de Vendas & VGV</h2>
           <p className="text-xs text-slate-400">
-            Acompanhe negócios fechados e divisões de comissão em tempo real
+            Registro de negociações, divisões proporcionais e geração automática de entradas e
+            saídas
           </p>
         </div>
         <Button
@@ -309,6 +372,7 @@ export default function Vendas() {
         </div>
 
         <div className="flex items-center gap-2.5 overflow-x-auto pb-1 md:pb-0">
+          {/* Filtro Status */}
           <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {['todos', 'realizada', 'pendente', 'cancelada'].map((st) => (
               <button
@@ -321,6 +385,27 @@ export default function Vendas() {
                 }`}
               >
                 {st === 'todos' ? 'Todos' : st}
+              </button>
+            ))}
+          </div>
+
+          {/* Filtro Situação Recebimento */}
+          <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
+            {[
+              { id: 'todos', label: 'Todas Situações' },
+              { id: 'Recebido', label: 'Recebido' },
+              { id: 'Parcial', label: 'Parcial' },
+            ].map((sit) => (
+              <button
+                key={sit.id}
+                onClick={() => setRecebimentoFilter(sit.id)}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                  recebimentoFilter === sit.id
+                    ? 'bg-[#1A2234] text-white border border-[#232A3B]'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {sit.label}
               </button>
             ))}
           </div>
@@ -355,72 +440,85 @@ export default function Vendas() {
                 <th className="py-3.5 px-4">Imóvel & Cliente</th>
                 <th className="py-3.5 px-4">Corretor / Captador</th>
                 <th className="py-3.5 px-4 text-right">VGV</th>
-                <th className="py-3.5 px-4 text-center">% Com.</th>
                 <th className="py-3.5 px-4 text-right">Comissão Total</th>
+                <th className="py-3.5 px-4 text-right">Valor Recebido</th>
+                <th className="py-3.5 px-4 text-center">Situação</th>
                 <th className="py-3.5 px-4">Data</th>
                 <th className="py-3.5 px-4 text-center">Status</th>
                 <th className="py-3.5 px-4 text-right">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#232A3B]">
-              {filteredVendas.map((v) => (
-                <tr key={v.id} className="hover:bg-[#1A2234]/50 transition-colors">
-                  <td className="py-3.5 px-4 max-w-[240px]">
-                    <div className="font-semibold text-slate-100 truncate">{v.titulo_imovel}</div>
-                    <div className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
-                      <User className="w-3 h-3 text-slate-500" />
-                      {v.cliente || 'Cliente não informado'}
-                    </div>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <div className="font-medium text-slate-200">
-                      {v.expand?.corretor?.nome || 'Corretor'}
-                    </div>
-                    {v.expand?.captador && (
-                      <div className="text-[11px] text-amber-400/90 font-medium">
-                        Captador: {v.expand.captador.nome}
+              {filteredVendas.map((v) => {
+                const situacao = v.situacao_recebimento || 'Recebido'
+                const valorRec =
+                  v.valor_recebido ?? (situacao === 'Recebido' ? v.valor_comissao : 0)
+
+                return (
+                  <tr key={v.id} className="hover:bg-[#1A2234]/50 transition-colors">
+                    <td className="py-3.5 px-4 max-w-[220px]">
+                      <div className="font-semibold text-slate-100 truncate">{v.titulo_imovel}</div>
+                      <div className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
+                        <User className="w-3 h-3 text-slate-500" />
+                        {v.cliente || 'Cliente não informado'}
                       </div>
-                    )}
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-bold text-white tabular-nums">
-                    {formatCurrency(v.valor_vgv)}
-                  </td>
-                  <td className="py-3.5 px-4 text-center font-medium text-slate-300">
-                    {v.percentual_comissao}%
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-bold text-emerald-400 tabular-nums">
-                    {formatCurrency(v.valor_comissao)}
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-400">
-                    {new Date(v.data_venda).toLocaleDateString('pt-BR')}
-                  </td>
-                  <td className="py-3.5 px-4 text-center">{getStatusBadge(v.status)}</td>
-                  <td className="py-3.5 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => handleOpenEditModal(v)}
-                        className="h-7 w-7 text-slate-400 hover:text-white hover:bg-[#1A2234]"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setDeleteId(v.id)}
-                        className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="py-3.5 px-4">
+                      <div className="font-medium text-slate-200">
+                        {v.expand?.corretor?.nome || 'Corretor'}
+                      </div>
+                      {v.expand?.captador && (
+                        <div className="text-[11px] text-amber-400/90 font-medium">
+                          Captador: {v.expand.captador.nome}
+                        </div>
+                      )}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-white tabular-nums">
+                      {formatCurrency(v.valor_vgv)}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-slate-200 tabular-nums">
+                      {formatCurrency(v.valor_comissao)}
+                      <span className="block text-[10px] text-slate-400 font-normal">
+                        ({v.percentual_comissao}%)
+                      </span>
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold text-emerald-400 tabular-nums">
+                      {formatCurrency(valorRec)}
+                    </td>
+                    <td className="py-3.5 px-4 text-center">{getSituacaoBadge(situacao)}</td>
+                    <td className="py-3.5 px-4 text-slate-400">
+                      {new Date(v.data_venda).toLocaleDateString('pt-BR')}
+                    </td>
+                    <td className="py-3.5 px-4 text-center">{getStatusBadge(v.status)}</td>
+                    <td className="py-3.5 px-4 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenEditModal(v)}
+                          title="Editar venda / Complementar valor recebido"
+                          className="h-7 w-7 text-slate-400 hover:text-white hover:bg-[#1A2234]"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => setDeleteId(v.id)}
+                          title="Excluir venda"
+                          className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
 
               {filteredVendas.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-500">
+                  <td colSpan={9} className="py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Building className="w-8 h-8 text-slate-600" />
                       <p className="font-medium">
@@ -440,14 +538,15 @@ export default function Vendas() {
 
       {/* Modal Cadastro / Edição com Prévia de Divisão ao Vivo */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="text-lg font-bold text-white flex items-center gap-2">
               <TrendingUp className="w-5 h-5 text-[#E63946]" />
-              {editingVenda ? 'Editar Venda' : 'Cadastrar Nova Venda'}
+              {editingVenda ? 'Editar Venda & Recebimento' : 'Cadastrar Nova Venda'}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-400">
-              Preencha os dados da negociação. As comissões serão calculadas automaticamente.
+              Informe os dados da transação. As comissões, repasses e impostos serão calculados
+              estritamente sobre o valor recebido pela imobiliária.
             </DialogDescription>
           </DialogHeader>
 
@@ -484,7 +583,7 @@ export default function Vendas() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Corretor Responsável *
+                  Corretor Responsável (Fechador) *
                 </label>
                 <select
                   value={formCorretor}
@@ -514,7 +613,7 @@ export default function Vendas() {
                   onChange={(e) => setFormCaptador(e.target.value)}
                   className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
                 >
-                  <option value="">Nenhum captador adicional</option>
+                  <option value="">Nenhum captador adicional (100% corretor)</option>
                   {corretores
                     .filter((c) => c.ativo)
                     .map((c) => (
@@ -551,7 +650,10 @@ export default function Vendas() {
                   type="number"
                   step="0.5"
                   value={formPctComissao}
-                  onChange={(e) => setFormPctComissao(Number(e.target.value))}
+                  onChange={(e) => {
+                    setFormPctComissao(Number(e.target.value))
+                    setIsComissaoManual(false)
+                  }}
                   className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
                 />
               </div>
@@ -569,9 +671,77 @@ export default function Vendas() {
               </div>
             </div>
 
+            {/* Seção Fluxo de Recebimento */}
+            <div className="p-4 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
+              <div className="flex items-center justify-between pb-2 border-b border-[#232A3B]">
+                <div className="flex items-center gap-2">
+                  <Receipt className="w-4 h-4 text-[#E63946]" />
+                  <span className="font-bold text-xs text-white uppercase tracking-wider">
+                    Condição & Situação de Recebimento
+                  </span>
+                </div>
+                <span className="text-xs text-slate-400">
+                  Comissão Total Negociada:{' '}
+                  <strong className="text-white font-bold">
+                    {formatCurrency(valorComissaoCalculado)}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Situação do Recebimento *
+                  </label>
+                  <select
+                    value={formSituacaoRecebimento}
+                    onChange={(e) =>
+                      setFormSituacaoRecebimento(e.target.value as SituacaoRecebimento)
+                    }
+                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 font-semibold outline-none focus:border-[#E63946]"
+                  >
+                    <option value="Recebido">Recebido (Comissão Total na Conta)</option>
+                    <option value="Parcial">Parcial (Cliente pagou parte)</option>
+                  </select>
+                </div>
+
+                {formSituacaoRecebimento === 'Parcial' && (
+                  <div>
+                    <label className="block text-xs font-semibold text-amber-400 mb-1">
+                      Valor Recebido Efetivamente (R$) *
+                    </label>
+                    <Input
+                      type="number"
+                      placeholder="Ex: 10000"
+                      value={formValorRecebido}
+                      onChange={(e) =>
+                        setFormValorRecebido(e.target.value ? Number(e.target.value) : '')
+                      }
+                      className="bg-[#121722] border-amber-500/50 text-xs h-9 text-white font-bold"
+                    />
+                    {formErrors.valorRecebido && (
+                      <p className="text-[11px] text-red-400 mt-0.5">{formErrors.valorRecebido}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {formSituacaoRecebimento === 'Parcial' && (
+                <div className="text-[11px] text-amber-300/90 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
+                  <span>
+                    <strong>Regra importante:</strong> O corretor e o captador só recebem
+                    proporcional ao que a imobiliária recebeu efetivamente. Quando o cliente pagar o
+                    restante, edite esta venda e aumente o valor recebido para gerar as saídas
+                    complementares.
+                  </span>
+                </div>
+              )}
+            </div>
+
             <div>
               <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Status da Venda
+                Status da Negociação
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {[
@@ -596,30 +766,81 @@ export default function Vendas() {
             </div>
 
             {/* Live Preview Box of Commission Distribution */}
-            <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-2.5">
-              <div className="flex items-center justify-between text-xs">
-                <span className="font-bold text-slate-200 uppercase tracking-wider text-[10px]">
-                  Prévia da Divisão de Comissão
-                </span>
-                <span className="font-bold text-emerald-400 text-sm">
-                  {formatCurrency(valorComissaoPreview)}
-                </span>
+            <div className="p-4 rounded-xl bg-gradient-to-b from-[#0E121B] to-[#0B0E14] border border-[#232A3B] space-y-3">
+              <div className="flex items-center justify-between text-xs pb-2 border-b border-[#232A3B]">
+                <div className="flex items-center gap-2">
+                  <PieChartIcon className="w-4 h-4 text-emerald-400" />
+                  <span className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
+                    Prévia da Divisão ao Vivo (Base: {formatCurrency(valorBaseCalculo)})
+                  </span>
+                </div>
+                <div className="text-right">
+                  <span className="text-[10px] text-slate-400 block">Entrada Gerada:</span>
+                  <span className="font-extrabold text-emerald-400 text-sm">
+                    + {formatCurrency(valorBaseCalculo)}
+                  </span>
+                </div>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="p-2 rounded-lg bg-[#121722] border border-[#232A3B]">
-                  <p className="text-[10px] text-slate-400 font-semibold">
-                    Imobiliária ({pctImob}%)
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-center text-xs">
+                {/* Imobiliária Líquido (44%) */}
+                <div className="p-2.5 rounded-xl bg-[#121722] border border-[#E63946]/30 text-left relative overflow-hidden">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider">
+                      Imobiliária (Líquido)
+                    </p>
+                    <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-300 font-bold">
+                      44%
+                    </span>
+                  </div>
+                  <p className="font-black text-white text-base mt-1">
+                    {formatCurrency(valImobLiquido)}
                   </p>
-                  <p className="font-bold text-white mt-0.5">{formatCurrency(valImob)}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Livre após repasses & imposto</p>
                 </div>
-                <div className="p-2 rounded-lg bg-[#121722] border border-[#232A3B]">
-                  <p className="text-[10px] text-slate-400 font-semibold">Corretor ({pctCorr}%)</p>
-                  <p className="font-bold text-white mt-0.5">{formatCurrency(valCorr)}</p>
+
+                {/* Corretor Fechador */}
+                <div className="p-2.5 rounded-xl bg-[#121722] border border-blue-500/30 text-left">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-blue-400 font-bold uppercase tracking-wider">
+                      Corretor ({pctCorrConfig}%)
+                    </p>
+                    <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300 font-medium">
+                      Saída Pendente
+                    </span>
+                  </div>
+                  <p className="font-black text-white text-base mt-1">{formatCurrency(valCorr)}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Repasse automático</p>
                 </div>
-                <div className="p-2 rounded-lg bg-[#121722] border border-[#232A3B]">
-                  <p className="text-[10px] text-slate-400 font-semibold">Captador ({pctCapt}%)</p>
-                  <p className="font-bold text-white mt-0.5">{formatCurrency(valCapt)}</p>
+
+                {/* Captador */}
+                <div className="p-2.5 rounded-xl bg-[#121722] border border-amber-500/30 text-left">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
+                      Captador ({pctCaptConfig}%)
+                    </p>
+                    <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300 font-medium">
+                      Saída Pendente
+                    </span>
+                  </div>
+                  <p className="font-black text-white text-base mt-1">{formatCurrency(valCapt)}</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Repasse captação</p>
+                </div>
+
+                {/* Imposto (6%) */}
+                <div className="p-2.5 rounded-xl bg-[#121722] border border-red-500/30 text-left">
+                  <div className="flex items-center justify-between">
+                    <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider">
+                      Imposto (6%)
+                    </p>
+                    <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-300 font-medium">
+                      Saída Pendente
+                    </span>
+                  </div>
+                  <p className="font-black text-red-400 text-base mt-1">
+                    {formatCurrency(valImposto)}
+                  </p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">Simples Nacional</p>
                 </div>
               </div>
             </div>
@@ -662,8 +883,8 @@ export default function Vendas() {
               Excluir Venda
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-400">
-              Tem certeza de que deseja excluir este registro? Apenas vendas com comissões pendentes
-              podem ser excluídas.
+              Tem certeza de que deseja excluir este registro e todas as transações financeiras
+              vinculadas?
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="gap-2">

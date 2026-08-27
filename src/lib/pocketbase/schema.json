@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T11:56:40.615Z",
+  "generatedAt": "2026-08-27T12:25:44.044Z",
   "collections": [
     {
       "name": "users",
@@ -197,6 +197,19 @@
           "required": false,
           "system": false,
           "autodateTriggers": ["onCreate", "onUpdate"]
+        },
+        {
+          "name": "situacao_recebimento",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Recebido", "Parcial"]
+        },
+        {
+          "name": "valor_recebido",
+          "type": "number",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
