@@ -349,13 +349,18 @@ export default function Vendas() {
             saídas
           </p>
         </div>
-        <Button
-          onClick={handleOpenCreateModal}
-          className="bg-[#E63946] hover:bg-[#D62839] text-white font-semibold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          <span>+ Nova Venda</span>
-        </Button>
+        <div className="flex items-center gap-3">
+          <span className="hidden sm:inline-flex px-3 py-1.5 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400">
+            {getPeriodoDates(periodo).label}
+          </span>
+          <Button
+            onClick={handleOpenCreateModal}
+            className="bg-[#E63946] hover:bg-[#D62839] text-white font-semibold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2"
+          >
+            <Plus className="w-4 h-4" />
+            <span>+ Nova Venda</span>
+          </Button>
+        </div>
       </div>
 
       {/* Filters & Search Toolbar */}

@@ -185,4 +185,4 @@ export interface Configuracoes {
   updated: string
 }
 
-export type PeriodoGlobal = 'mes' | 'trimestre' | 'semestre' | 'ano'
+export type PeriodoGlobal = 'mes' | 'trimestre' | 'semestre' | 'ano' | string

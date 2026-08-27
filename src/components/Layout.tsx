@@ -20,6 +20,7 @@ import {
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { PeriodoGlobal } from '@/types'
+import { PeriodoSelector } from '@/components/PeriodoSelector'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -164,52 +165,7 @@ export default function Layout() {
 
           <div className="flex items-center gap-4">
             {/* Seletor Global de Período */}
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="bg-[#121722] border-[#232A3B] text-slate-200 hover:bg-[#1A2234] hover:text-white text-xs h-9 px-3 gap-2"
-                >
-                  <span className="text-slate-400">Período:</span>
-                  <span className="font-semibold text-red-400">{periodoLabels[periodo]}</span>
-                  <ChevronDown className="w-3.5 h-3.5 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent
-                align="end"
-                className="bg-[#121722] border-[#232A3B] text-slate-200"
-              >
-                <DropdownMenuLabel className="text-xs text-slate-400">
-                  Filtrar por período
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator className="bg-[#232A3B]" />
-                <DropdownMenuItem
-                  onClick={() => setPeriodo('mes')}
-                  className="cursor-pointer hover:bg-[#1A2234] focus:bg-[#1A2234]"
-                >
-                  Mês atual
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setPeriodo('trimestre')}
-                  className="cursor-pointer hover:bg-[#1A2234] focus:bg-[#1A2234]"
-                >
-                  Trimestre atual
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setPeriodo('semestre')}
-                  className="cursor-pointer hover:bg-[#1A2234] focus:bg-[#1A2234]"
-                >
-                  Semestre atual
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setPeriodo('ano')}
-                  className="cursor-pointer hover:bg-[#1A2234] focus:bg-[#1A2234]"
-                >
-                  Ano atual
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
+            <PeriodoSelector variant="desktop" />
 
             {/* User Profile Avatar Dropdown */}
             <DropdownMenu>
@@ -307,24 +263,14 @@ export default function Layout() {
               </div>
 
               {/* Mobile Período */}
-              <div className="p-3 border-b border-[#232A3B]">
-                <p className="text-[11px] text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">
-                  Período Atual
-                </p>
-                <div className="grid grid-cols-2 gap-1">
-                  {(['mes', 'trimestre', 'semestre', 'ano'] as PeriodoGlobal[]).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPeriodo(p)}
-                      className={`text-xs py-1.5 px-2 rounded font-medium text-center transition-all ${
-                        periodo === p
-                          ? 'bg-[#E63946] text-white font-bold'
-                          : 'bg-[#121722] text-slate-300 hover:bg-[#1A2234]'
-                      }`}
-                    >
-                      {periodoLabels[p]}
-                    </button>
-                  ))}
+              <div className="p-3 border-b border-[#232A3B] space-y-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">
+                    Período Global
+                  </p>
+                </div>
+                <div className="w-full flex">
+                  <PeriodoSelector variant="mobile" />
                 </div>
               </div>
 

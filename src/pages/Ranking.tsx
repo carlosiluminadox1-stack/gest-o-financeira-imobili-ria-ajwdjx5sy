@@ -139,13 +139,22 @@ export default function Ranking() {
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-white tracking-tight">
-          Ranking de Performance dos Corretores
-        </h2>
-        <p className="text-xs text-slate-400">
-          Resultados de vendas, volume de VGV gerado e repasses de comissão no período
-        </p>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-bold text-white tracking-tight">
+            Ranking de Performance dos Corretores
+          </h2>
+          <p className="text-xs text-slate-400">
+            Resultados de vendas, volume de VGV gerado e repasses de comissão no período
+          </p>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="text-xs text-slate-400">Filtrando por:</span>
+          <span className="px-3 py-1 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400 shadow-sm">
+            {getPeriodoDates(periodo).label}
+          </span>
+        </div>
       </div>
 
       {/* PÓDIO TOP 3 */}

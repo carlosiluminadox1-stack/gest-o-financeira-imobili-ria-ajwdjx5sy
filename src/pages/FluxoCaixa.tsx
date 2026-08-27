@@ -305,7 +305,8 @@ export default function FluxoCaixa() {
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight">Fluxo de Caixa & Despesas</h2>
           <p className="text-xs text-slate-400">
-            Controle de entradas, saídas e automação de despesas recorrentes
+            Controle de entradas, saídas e automação de despesas recorrentes (
+            {getPeriodoDates(periodo).label})
           </p>
         </div>
 

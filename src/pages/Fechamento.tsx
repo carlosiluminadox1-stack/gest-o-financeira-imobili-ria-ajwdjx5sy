@@ -18,6 +18,7 @@ import {
 import { FechamentoService, TransacaoService } from '@/services/imobService'
 import { Fechamento, Transacao } from '@/types'
 import { useAuth } from '@/context/AuthContext'
+import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -31,9 +32,12 @@ import { toast } from 'sonner'
 
 export default function FechamentoPage() {
   const { user } = useAuth()
+  const { periodo, getPeriodoDates, selecionarMesEspecifico } = usePeriodo()
   const now = new Date()
-  const [selectedMes, setSelectedMes] = useState<number>(now.getMonth() + 1)
-  const [selectedAno, setSelectedAno] = useState<number>(now.getFullYear())
+  const periodoInfo = getPeriodoDates(periodo)
+
+  const [selectedMes, setSelectedMes] = useState<number>(periodoInfo.mes || now.getMonth() + 1)
+  const [selectedAno, setSelectedAno] = useState<number>(periodoInfo.ano || now.getFullYear())
 
   const [fechamentos, setFechamentos] = useState<Fechamento[]>([])
   const [transacoes, setTransacoes] = useState<Transacao[]>([])
@@ -78,6 +82,27 @@ export default function FechamentoPage() {
   useEffect(() => {
     loadData()
   }, [])
+
+  // Sincronizar quando o período global mudar para um mês específico ou ano
+  useEffect(() => {
+    const info = getPeriodoDates(periodo)
+    if (info.mes) {
+      setSelectedMes(info.mes)
+    }
+    if (info.ano) {
+      setSelectedAno(info.ano)
+    }
+  }, [periodo, getPeriodoDates])
+
+  const handleMesChange = (mes: number) => {
+    setSelectedMes(mes)
+    selecionarMesEspecifico(selectedAno, mes)
+  }
+
+  const handleAnoChange = (ano: number) => {
+    setSelectedAno(ano)
+    selecionarMesEspecifico(ano, selectedMes)
+  }
 
   // Verificar se o mês atual selecionado já foi fechado
   const fechamentoAtual = useMemo(() => {
@@ -189,11 +214,11 @@ export default function FechamentoPage() {
           {/* Seletor Mês */}
           <select
             value={selectedMes}
-            onChange={(e) => setSelectedMes(Number(e.target.value))}
-            className="bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-xl h-10 px-3 font-semibold outline-none"
+            onChange={(e) => handleMesChange(Number(e.target.value))}
+            className="bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-xl h-10 px-3 font-semibold outline-none hover:border-[#E63946] focus:border-[#E63946] transition-colors"
           >
             {MESES.map((m) => (
-              <option key={m.num} value={m.num}>
+              <option key={m.num} value={m.num} className="bg-[#121722] text-slate-100">
                 {m.nome}
               </option>
             ))}
@@ -202,11 +227,11 @@ export default function FechamentoPage() {
           {/* Seletor Ano */}
           <select
             value={selectedAno}
-            onChange={(e) => setSelectedAno(Number(e.target.value))}
-            className="bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-xl h-10 px-3 font-semibold outline-none"
+            onChange={(e) => handleAnoChange(Number(e.target.value))}
+            className="bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-xl h-10 px-3 font-semibold outline-none hover:border-[#E63946] focus:border-[#E63946] transition-colors"
           >
-            {[2024, 2025, 2026, 2027].map((y) => (
-              <option key={y} value={y}>
+            {[2023, 2024, 2025, 2026, 2027].map((y) => (
+              <option key={y} value={y} className="bg-[#121722] text-slate-100">
                 {y}
               </option>
             ))}
