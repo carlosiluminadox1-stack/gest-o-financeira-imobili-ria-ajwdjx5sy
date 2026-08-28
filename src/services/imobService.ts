@@ -759,7 +759,9 @@ export const FechamentoService = {
       for (const t of transacoes) {
         await pb.collection('transacoes').update(t.id, { consolidado: true })
       }
-    } catch { /* intentionally ignored */ }
+    } catch {
+      /* intentionally ignored */
+    }
 
     return record
   },

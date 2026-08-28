@@ -30,15 +30,13 @@ import {
   Area,
 } from 'recharts'
 import { ComissaoService, CorretorService, TransacaoService } from '@/services/imobService'
-import { Comissao, Corretor, ComissaoTipo, SituacaoRecebimento } from '@/types'
+import { Comissao, Corretor } from '@/types'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { toast } from 'sonner'
 import { AnimatedCounter } from '@/components/AnimatedCounter'
-
-const COLORS = ['#E63946', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6', '#EC4899', '#06B6D4']
 
 export default function Comissoes() {
   const { user } = useAuth()
@@ -87,11 +85,15 @@ export default function Comissoes() {
       // Corretor
       if (selectedCorretor !== 'todos' && c.corretor !== selectedCorretor) return false
 
-      // Tipo (venda x captacao)
-      if (selectedTipo !== 'todos' && c.tipo !== selectedTipo) return false
+      // Tipo (venda / corretor vs captador)
+      const tipoCalculado = c.parte === 'captador' ? 'captacao' : 'venda'
+      if (selectedTipo !== 'todos' && tipoCalculado !== selectedTipo) return false
 
-      // Status (pago x pendente)
-      if (selectedStatus !== 'todos' && c.status !== selectedStatus) return false
+      // Status (paga vs pendente)
+      if (selectedStatus !== 'todos') {
+        if (selectedStatus === 'pago' && c.status !== 'paga') return false
+        if (selectedStatus === 'pendente' && c.status === 'paga') return false
+      }
 
       // Situação da venda relacionada
       if (selectedSituacao !== 'todos') {
@@ -127,22 +129,22 @@ export default function Comissoes() {
   }, [filteredComissoes])
 
   const totalPagas = useMemo(() => {
-    return filteredComissoes.filter((c) => c.status === 'pago').reduce((acc, c) => acc + c.valor, 0)
+    return filteredComissoes.filter((c) => c.status === 'paga').reduce((acc, c) => acc + c.valor, 0)
   }, [filteredComissoes])
 
   const totalPendentes = useMemo(() => {
-    return filteredComissoes
-      .filter((c) => c.status === 'pendente')
-      .reduce((acc, c) => acc + c.valor, 0)
+    return filteredComissoes.filter((c) => c.status !== 'paga').reduce((acc, c) => acc + c.valor, 0)
   }, [filteredComissoes])
 
   const totalVendaDireta = useMemo(() => {
-    return filteredComissoes.filter((c) => c.tipo === 'venda').reduce((acc, c) => acc + c.valor, 0)
+    return filteredComissoes
+      .filter((c) => c.parte !== 'captador')
+      .reduce((acc, c) => acc + c.valor, 0)
   }, [filteredComissoes])
 
   const totalCaptacao = useMemo(() => {
     return filteredComissoes
-      .filter((c) => c.tipo === 'captacao')
+      .filter((c) => c.parte === 'captador')
       .reduce((acc, c) => acc + c.valor, 0)
   }, [filteredComissoes])
 
@@ -158,7 +160,7 @@ export default function Comissoes() {
         map[nome] = { nome, total: 0, pago: 0, pendente: 0 }
       }
       map[nome].total += c.valor
-      if (c.status === 'pago') map[nome].pago += c.valor
+      if (c.status === 'paga') map[nome].pago += c.valor
       else map[nome].pendente += c.valor
     })
 
@@ -578,7 +580,7 @@ export default function Comissoes() {
                     {c.expand?.corretor?.nome || 'Corretor'}
                   </td>
                   <td className="py-3.5 px-4">
-                    {c.tipo === 'venda' ? (
+                    {c.parte !== 'captador' ? (
                       <span className="px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-500/15 text-blue-400 border border-blue-500/20">
                         Venda Fechador
                       </span>
@@ -603,7 +605,7 @@ export default function Comissoes() {
                     {formatCurrency(c.valor)}
                   </td>
                   <td className="py-3.5 px-4 text-center">
-                    {c.status === 'pago' ? (
+                    {c.status === 'paga' ? (
                       <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/20">
                         <CheckCircle2 className="w-3 h-3" /> Pago
                       </span>
@@ -614,7 +616,7 @@ export default function Comissoes() {
                     )}
                   </td>
                   <td className="py-3.5 px-4 text-right">
-                    {c.status === 'pendente' && (
+                    {c.status !== 'paga' && (
                       <Button
                         size="sm"
                         onClick={() => handleMarcarComoPago(c)}
