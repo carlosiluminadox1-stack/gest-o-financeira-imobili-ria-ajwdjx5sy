@@ -123,12 +123,12 @@ export const VendaService = {
     return await pb.collection('vendas').getFullList<Venda>({
       filter,
       sort: '-data_venda',
-      expand: 'corretor,captador',
+      expand: 'corretor,captador,captadores',
     })
   },
   async getById(id: string): Promise<Venda> {
     return await pb.collection('vendas').getOne<Venda>(id, {
-      expand: 'corretor,captador',
+      expand: 'corretor,captador,captadores',
     })
   },
   async create(data: {
@@ -136,6 +136,7 @@ export const VendaService = {
     cliente: string
     corretor: string
     captador?: string
+    captadores?: string[]
     valor_vgv: number
     percentual_comissao: number
     situacao_recebimento: 'Recebido' | 'Parcial'
@@ -149,11 +150,21 @@ export const VendaService = {
     const valorRecebido =
       situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao)
 
+    // Normalizar captadores
+    const captadoresList =
+      data.captadores && data.captadores.length > 0
+        ? data.captadores.filter(Boolean)
+        : data.captador
+          ? [data.captador]
+          : []
+    const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : null
+
     const record = await pb.collection('vendas').create<Venda>({
       titulo_imovel: data.titulo_imovel,
       cliente: data.cliente,
       corretor: data.corretor,
-      captador: data.captador || null,
+      captador: primaryCaptador,
+      captadores: captadoresList,
       valor_vgv: data.valor_vgv,
       percentual_comissao: data.percentual_comissao,
       valor_comissao,
@@ -171,7 +182,8 @@ export const VendaService = {
         tituloImovel: data.titulo_imovel,
         clienteNome: data.cliente,
         corretorId: data.corretor,
-        captadorId: data.captador,
+        captadorId: primaryCaptador || undefined,
+        captadoresIds: captadoresList,
         valorBase: valorRecebido,
         valorTotalComissao: valor_comissao,
         dataVenda: data.data_venda,
@@ -191,7 +203,7 @@ export const VendaService = {
     userId: string,
   ): Promise<Venda> {
     const prev = await pb.collection('vendas').getOne<Venda>(id, {
-      expand: 'corretor,captador',
+      expand: 'corretor,captador,captadores',
     })
     const valor_vgv = data.valor_vgv !== undefined ? data.valor_vgv : prev.valor_vgv
     const percentual_comissao =
@@ -209,8 +221,23 @@ export const VendaService = {
     )
     const diferencaRecebida = novoValorRecebido - prevValorRecebido
 
+    let captadoresList: string[] = []
+    if (data.captadores !== undefined) {
+      captadoresList = data.captadores.filter(Boolean)
+    } else if (data.captador !== undefined) {
+      captadoresList = data.captador ? [data.captador] : []
+    } else if (prev.captadores && prev.captadores.length > 0) {
+      captadoresList = prev.captadores
+    } else if (prev.captador) {
+      captadoresList = [prev.captador]
+    }
+
+    const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : null
+
     const updated = await pb.collection('vendas').update<Venda>(id, {
       ...data,
+      captador: primaryCaptador,
+      captadores: captadoresList,
       valor_comissao,
       situacao_recebimento: situacao,
       valor_recebido: novoValorRecebido,
@@ -218,7 +245,6 @@ export const VendaService = {
 
     const statusNovo = data.status ?? prev.status
     const corretorId = data.corretor ?? prev.corretor
-    const captadorId = data.captador !== undefined ? data.captador : prev.captador
     const titulo = data.titulo_imovel ?? prev.titulo_imovel
     const cliente = data.cliente ?? prev.cliente
     const dataVenda = data.data_venda ?? prev.data_venda
@@ -230,7 +256,8 @@ export const VendaService = {
         tituloImovel: titulo,
         clienteNome: cliente,
         corretorId,
-        captadorId,
+        captadorId: primaryCaptador || undefined,
+        captadoresIds: captadoresList,
         valorBase: novoValorRecebido,
         valorTotalComissao: valor_comissao,
         dataVenda,
@@ -244,7 +271,8 @@ export const VendaService = {
         tituloImovel: titulo,
         clienteNome: cliente,
         corretorId,
-        captadorId,
+        captadorId: primaryCaptador || undefined,
+        captadoresIds: captadoresList,
         valorBase: diferencaRecebida,
         valorTotalComissao: valor_comissao,
         dataVenda,
@@ -278,6 +306,7 @@ export const VendaService = {
     clienteNome?: string
     corretorId: string
     captadorId?: string
+    captadoresIds?: string[]
     valorBase: number // valor recebido efetivamente (ou parcela complementar)
     valorTotalComissao: number
     dataVenda: string
@@ -289,6 +318,7 @@ export const VendaService = {
       tituloImovel,
       corretorId,
       captadorId,
+      captadoresIds,
       valorBase,
       dataVenda,
       userId,
@@ -302,35 +332,49 @@ export const VendaService = {
       config = await ConfigService.getForUser(userId)
     }
 
-    // Percentuais padrão: Imobiliária 50%, Corretor 40%, Captador 10%, Imposto 6%
+    // Identificar lista de captadores (seja array ou single id)
+    let captadores: string[] = []
+    if (captadoresIds && captadoresIds.length > 0) {
+      captadores = captadoresIds.filter(Boolean)
+    } else if (captadorId && captadorId.trim().length > 0) {
+      captadores = [captadorId]
+    }
+
+    const numCaptadores = captadores.length
+    const hasCaptador = numCaptadores > 0
+
+    // Percentuais padrão: Imobiliária 50%, Corretor 40%, Captador 10% total, Imposto 6%
     const pctImob = config?.percentual_imobiliaria ?? 50
-    const hasCaptador = Boolean(captadorId && captadorId.trim().length > 0)
     const pctCorr = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob
-    const pctCapt = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+    const pctCaptTotal = hasCaptador ? (config?.percentual_captador ?? 10) : 0
     const pctImposto = 6
 
     const valCorr = (valorBase * pctCorr) / 100
-    const valCapt = hasCaptador ? (valorBase * pctCapt) / 100 : 0
+    const valCaptTotal = hasCaptador ? (valorBase * pctCaptTotal) / 100 : 0
     const valImposto = (valorBase * pctImposto) / 100
     const valImobTotal = (valorBase * pctImob) / 100
-    const valImobLiquido = valorBase - valCorr - valCapt - valImposto
 
     const dataIso = dataVenda || new Date().toISOString()
     const prefixoDesc = ehComplementar
       ? 'Recebimento complementar comissão'
       : 'Recebimento comissão'
 
-    // Obter dados do corretor para descrição legível
+    // Obter dados do corretor e dos captadores para descrição legível
     let corretorNome = 'Corretor'
-    let captadorNome = 'Captador'
+    const captadoresNomes: Record<string, string> = {}
+
     try {
       if (corretorId) {
         const cRec = await pb.collection('corretores').getOne<Corretor>(corretorId)
         corretorNome = cRec.nome
       }
-      if (captadorId) {
-        const captRec = await pb.collection('corretores').getOne<Corretor>(captadorId)
-        captadorNome = captRec.nome
+      for (const cId of captadores) {
+        try {
+          const captRec = await pb.collection('corretores').getOne<Corretor>(cId)
+          captadoresNomes[cId] = captRec.nome
+        } catch {
+          captadoresNomes[cId] = 'Captador'
+        }
       }
     } catch {
       /* intentionally ignored */
@@ -362,18 +406,26 @@ export const VendaService = {
       })
     }
 
-    // 3. Gerar Saída Pendente para Captador (10% ou configurado)
-    if (hasCaptador && valCapt > 0) {
-      await pb.collection('transacoes').create({
-        tipo: 'saida',
-        descricao: `Repasse comissão captador (${captadorNome}) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
-        categoria: 'repasse',
-        valor: valCapt,
-        data: dataIso,
-        consolidado: false,
-        venda: vendaId,
-        user: userId,
-      })
+    // 3. Gerar Saída Pendente para cada Captador (dividido igualmente: 50% do valor de captação quando houver 2 captadores)
+    if (hasCaptador && valCaptTotal > 0) {
+      const valPorCaptador = valCaptTotal / numCaptadores
+      const pctPorCaptador = pctCaptTotal / numCaptadores
+
+      for (const cId of captadores) {
+        const nomeCapt = captadoresNomes[cId] || 'Captador'
+        const descDivisao = numCaptadores > 1 ? ` (${pctPorCaptador}%)` : ''
+
+        await pb.collection('transacoes').create({
+          tipo: 'saida',
+          descricao: `Repasse comissão captador (${nomeCapt})${descDivisao} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+          categoria: 'repasse',
+          valor: valPorCaptador,
+          data: dataIso,
+          consolidado: false,
+          venda: vendaId,
+          user: userId,
+        })
+      }
     }
 
     // 4. Gerar Saída Pendente de Imposto (6%)
@@ -415,17 +467,22 @@ export const VendaService = {
       })
     }
 
-    // Captador
-    if (hasCaptador && valCapt > 0) {
-      await pb.collection('comissoes').create({
-        venda: vendaId,
-        parte: 'captador',
-        corretor: captadorId,
-        percentual: pctCapt,
-        valor: valCapt,
-        status: 'pendente',
-        user: userId,
-      })
+    // Captadores (lançamento individual para cada corretor captador)
+    if (hasCaptador && valCaptTotal > 0) {
+      const valPorCaptador = valCaptTotal / numCaptadores
+      const pctPorCaptador = pctCaptTotal / numCaptadores
+
+      for (const cId of captadores) {
+        await pb.collection('comissoes').create({
+          venda: vendaId,
+          parte: 'captador',
+          corretor: cId,
+          percentual: pctPorCaptador,
+          valor: valPorCaptador,
+          status: 'pendente',
+          user: userId,
+        })
+      }
     }
   },
 }
@@ -436,7 +493,7 @@ export const ComissaoService = {
     return await pb.collection('comissoes').getFullList<Comissao>({
       filter,
       sort: '-created',
-      expand: 'venda,corretor,venda.corretor,venda.captador',
+      expand: 'venda,corretor,venda.corretor,venda.captador,venda.captadores',
     })
   },
   async registrarRecebimento(comissaoId: string, userId: string): Promise<void> {

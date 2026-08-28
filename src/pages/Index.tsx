@@ -312,7 +312,8 @@ export default function Dashboard() {
           map[v.corretor].count += 1
           const sit = v.situacao_recebimento || 'Recebido'
           const valorBase = v.valor_recebido ?? (sit === 'Recebido' ? v.valor_comissao : 0)
-          map[v.corretor].comissao += valorBase * (v.captador ? 0.4 : 0.5)
+          const hasCapt = Boolean((v.captadores && v.captadores.length > 0) || v.captador)
+          map[v.corretor].comissao += valorBase * (hasCapt ? 0.4 : 0.5)
         }
       })
 

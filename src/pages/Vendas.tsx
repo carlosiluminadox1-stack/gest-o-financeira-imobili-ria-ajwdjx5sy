@@ -17,6 +17,8 @@ import {
   Receipt,
   PieChart as PieChartIcon,
   HelpCircle,
+  Users,
+  X,
 } from 'lucide-react'
 import { VendaService, CorretorService, ConfigService } from '@/services/imobService'
 import { Venda, Corretor, VendaStatus, Configuracoes, SituacaoRecebimento } from '@/types'
@@ -58,7 +60,7 @@ export default function Vendas() {
   const [formTitulo, setFormTitulo] = useState('')
   const [formCliente, setFormCliente] = useState('')
   const [formCorretor, setFormCorretor] = useState('')
-  const [formCaptador, setFormCaptador] = useState('')
+  const [formCaptadores, setFormCaptadores] = useState<string[]>([])
   const [formVgv, setFormVgv] = useState<number | ''>('')
   const [formPctComissao, setFormPctComissao] = useState<number>(6)
   const [formValorComissaoManual, setFormValorComissaoManual] = useState<number | ''>('')
@@ -157,25 +159,52 @@ export default function Vendas() {
 
   // Percentuais configurados
   const pctImobConfig = config?.percentual_imobiliaria ?? 50
-  const hasCaptador = Boolean(formCaptador && formCaptador.trim().length > 0)
+  const numCaptadores = formCaptadores.length
+  const hasCaptador = numCaptadores > 0
   const pctCorrConfig = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImobConfig
-  const pctCaptConfig = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+  const pctCaptTotalConfig = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+  const pctPorCaptador = numCaptadores > 0 ? pctCaptTotalConfig / numCaptadores : 0
   const pctImpostoConfig = 6 // Imposto fixo de 6% sobre o recebido
 
   // Valores calculados sobre a base recebida
   const valCorr = (valorBaseCalculo * pctCorrConfig) / 100
-  const valCapt = hasCaptador ? (valorBaseCalculo * pctCaptConfig) / 100 : 0
+  const valCaptTotal = hasCaptador ? (valorBaseCalculo * pctCaptTotalConfig) / 100 : 0
+  const valPorCaptador = numCaptadores > 0 ? valCaptTotal / numCaptadores : 0
   const valImposto = (valorBaseCalculo * pctImpostoConfig) / 100
   // Líquido Alfa: valor recebido - 40% corretor - 10% captador - 6% imposto = 44% (ex: 8.800 de 20.000)
-  const valImobLiquido = valorBaseCalculo - valCorr - valCapt - valImposto
+  const valImobLiquido = valorBaseCalculo - valCorr - valCaptTotal - valImposto
   const valImobBruto = (valorBaseCalculo * pctImobConfig) / 100
+
+  // Auxiliar para obter a lista de corretores captadores de uma venda
+  const getCaptadoresVenda = (v: Venda): Corretor[] => {
+    if (
+      v.expand?.captadores &&
+      Array.isArray(v.expand.captadores) &&
+      v.expand.captadores.length > 0
+    ) {
+      return v.expand.captadores
+    }
+    if (v.captadores && v.captadores.length > 0) {
+      return v.captadores
+        .map((id) => corretores.find((c) => c.id === id))
+        .filter((c): c is Corretor => Boolean(c))
+    }
+    if (v.expand?.captador) {
+      return [v.expand.captador]
+    }
+    if (v.captador) {
+      const found = corretores.find((c) => c.id === v.captador)
+      return found ? [found] : []
+    }
+    return []
+  }
 
   const handleOpenCreateModal = () => {
     setEditingVenda(null)
     setFormTitulo('')
     setFormCliente('')
     setFormCorretor(corretores.find((c) => c.ativo)?.id || '')
-    setFormCaptador('')
+    setFormCaptadores([])
     setFormVgv('')
     setFormPctComissao(config?.percentual_comissao_padrao ?? 6)
     setIsComissaoManual(false)
@@ -193,7 +222,16 @@ export default function Vendas() {
     setFormTitulo(venda.titulo_imovel)
     setFormCliente(venda.cliente || '')
     setFormCorretor(venda.corretor)
-    setFormCaptador(venda.captador || '')
+
+    // Carregar múltiplos captadores se existirem
+    if (venda.captadores && venda.captadores.length > 0) {
+      setFormCaptadores(venda.captadores)
+    } else if (venda.captador) {
+      setFormCaptadores([venda.captador])
+    } else {
+      setFormCaptadores([])
+    }
+
     setFormVgv(venda.valor_vgv)
     setFormPctComissao(venda.percentual_comissao)
     setIsComissaoManual(false)
@@ -244,7 +282,8 @@ export default function Vendas() {
             titulo_imovel: formTitulo,
             cliente: formCliente,
             corretor: formCorretor,
-            captador: formCaptador || undefined,
+            captador: formCaptadores.length > 0 ? formCaptadores[0] : undefined,
+            captadores: formCaptadores,
             valor_vgv: Number(formVgv),
             percentual_comissao: formPctComissao,
             situacao_recebimento: formSituacaoRecebimento,
@@ -260,7 +299,8 @@ export default function Vendas() {
           titulo_imovel: formTitulo,
           cliente: formCliente,
           corretor: formCorretor,
-          captador: formCaptador || undefined,
+          captador: formCaptadores.length > 0 ? formCaptadores[0] : undefined,
+          captadores: formCaptadores,
           valor_vgv: Number(formVgv),
           percentual_comissao: formPctComissao,
           situacao_recebimento: formSituacaoRecebimento,
@@ -474,11 +514,25 @@ export default function Vendas() {
                       <div className="font-medium text-slate-200">
                         {v.expand?.corretor?.nome || 'Corretor'}
                       </div>
-                      {v.expand?.captador && (
-                        <div className="text-[11px] text-amber-400/90 font-medium">
-                          Captador: {v.expand.captador.nome}
-                        </div>
-                      )}
+                      {(() => {
+                        const capts = getCaptadoresVenda(v)
+                        if (capts.length === 0) return null
+                        if (capts.length === 1) {
+                          return (
+                            <div className="text-[11px] text-amber-400/90 font-medium mt-0.5">
+                              Captador: {capts[0].nome} (10%)
+                            </div>
+                          )
+                        }
+                        return (
+                          <div className="text-[11px] text-amber-400/90 font-medium mt-0.5">
+                            <span className="text-amber-300 font-semibold">
+                              Captadores (50% cada):{' '}
+                            </span>
+                            {capts.map((c) => c.nome).join(' + ')}
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="py-3.5 px-4 text-right font-bold text-white tabular-nums">
                       {formatCurrency(v.valor_vgv)}
@@ -587,7 +641,7 @@ export default function Vendas() {
               />
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="space-y-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
                   Corretor Responsável (Fechador) *
@@ -611,24 +665,92 @@ export default function Vendas() {
                 )}
               </div>
 
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Captador do Imóvel (Opcional)
-                </label>
-                <select
-                  value={formCaptador}
-                  onChange={(e) => setFormCaptador(e.target.value)}
-                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
-                >
-                  <option value="">Nenhum captador adicional (100% corretor)</option>
-                  {corretores
-                    .filter((c) => c.ativo)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome}
-                      </option>
-                    ))}
-                </select>
+              {/* Seção Múltiplos Captadores */}
+              <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-4 h-4 text-amber-400" />
+                    <label className="text-xs font-semibold text-slate-200">
+                      Captador(es) do Imóvel (Opcional)
+                    </label>
+                  </div>
+                  {formCaptadores.length > 1 && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                      Captação Conjunta ({100 / formCaptadores.length}% cada)
+                    </span>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-slate-400">
+                  Adicione um ou mais corretores que realizaram a captação juntos. O percentual
+                  total de captação ({pctCaptTotalConfig}%) será dividido igualmente entre eles (50%
+                  para cada em captação dupla).
+                </p>
+
+                {/* Seleção de corretor para adicionar */}
+                <div className="flex gap-2">
+                  <select
+                    id="select-add-captador"
+                    defaultValue=""
+                    onChange={(e) => {
+                      const newId = e.target.value
+                      if (newId && !formCaptadores.includes(newId)) {
+                        setFormCaptadores([...formCaptadores, newId])
+                      }
+                      e.target.value = ''
+                    }}
+                    className="flex-1 bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-amber-400"
+                  >
+                    <option value="">+ Selecionar corretor captador para adicionar...</option>
+                    {corretores
+                      .filter((c) => c.ativo && !formCaptadores.includes(c.id))
+                      .map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {/* Tags de Captadores Selecionados */}
+                {formCaptadores.length > 0 ? (
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {formCaptadores.map((cId, idx) => {
+                      const corr = corretores.find((c) => c.id === cId)
+                      const pctItem = pctCaptTotalConfig / formCaptadores.length
+                      const valItem = valCaptTotal / formCaptadores.length
+                      return (
+                        <div
+                          key={cId}
+                          className="flex items-center gap-2 bg-[#121722] border border-amber-500/40 rounded-lg px-3 py-1.5 text-xs text-slate-200 shadow-sm"
+                        >
+                          <span className="w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 font-bold flex items-center justify-center text-[10px]">
+                            {idx + 1}
+                          </span>
+                          <span className="font-semibold">{corr?.nome || 'Corretor'}</span>
+                          <span className="text-[10px] text-amber-400 font-medium bg-amber-500/10 px-1.5 py-0.5 rounded">
+                            {pctItem}% ({formatCurrency(valItem)})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setFormCaptadores(formCaptadores.filter((id) => id !== cId))
+                            }
+                            className="text-slate-400 hover:text-red-400 ml-0.5 transition-colors"
+                            title="Remover captador"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-500 italic bg-[#121722]/50 p-2 rounded-lg border border-[#232A3B]">
+                    Nenhum captador adicional selecionado. 100% da comissão da parte dos corretores
+                    fica com o corretor fechador.
+                  </div>
+                )}
               </div>
             </div>
 
@@ -820,18 +942,26 @@ export default function Vendas() {
                   <p className="text-[9px] text-slate-400 mt-0.5">Repasse automático</p>
                 </div>
 
-                {/* Captador */}
+                {/* Captador(es) */}
                 <div className="p-2.5 rounded-xl bg-[#121722] border border-amber-500/30 text-left">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] text-amber-400 font-bold uppercase tracking-wider">
-                      Captador ({pctCaptConfig}%)
+                      {numCaptadores > 1
+                        ? `Captadores (${pctCaptTotalConfig}%)`
+                        : `Captador (${pctCaptTotalConfig}%)`}
                     </p>
                     <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300 font-medium">
-                      Saída Pendente
+                      {numCaptadores > 1 ? `${numCaptadores} Saídas` : 'Saída Pendente'}
                     </span>
                   </div>
-                  <p className="font-black text-white text-base mt-1">{formatCurrency(valCapt)}</p>
-                  <p className="text-[9px] text-slate-400 mt-0.5">Repasse captação</p>
+                  <p className="font-black text-white text-base mt-1">
+                    {formatCurrency(valCaptTotal)}
+                  </p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    {numCaptadores > 1
+                      ? `${formatCurrency(valPorCaptador)} cada (${pctPorCaptador}%)`
+                      : 'Repasse captação'}
+                  </p>
                 </div>
 
                 {/* Imposto (6%) */}

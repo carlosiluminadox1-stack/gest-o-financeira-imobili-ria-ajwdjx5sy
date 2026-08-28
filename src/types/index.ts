@@ -30,6 +30,7 @@ export interface Venda {
   cliente: string
   corretor: string
   captador?: string
+  captadores?: string[]
   valor_vgv: number
   percentual_comissao: number
   valor_comissao: number
@@ -43,6 +44,7 @@ export interface Venda {
   expand?: {
     corretor?: Corretor
     captador?: Corretor
+    captadores?: Corretor[]
     user?: User
   }
 }

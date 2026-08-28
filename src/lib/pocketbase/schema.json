@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T14:39:01.866Z",
+  "generatedAt": "2026-08-28T19:46:39.293Z",
   "collections": [
     {
       "name": "users",
@@ -210,6 +210,13 @@
           "type": "number",
           "required": false,
           "system": false
+        },
+        {
+          "name": "captadores",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "corretores"
         }
       ],
       "indexes": [

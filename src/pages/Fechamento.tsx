@@ -132,7 +132,7 @@ export default function FechamentoPage() {
     mVendas.forEach((v) => {
       const sit = v.situacao_recebimento || 'Recebido'
       const baseRec = sit === 'Recebido' ? v.valor_comissao : v.valor_recebido || 0
-      const hasCaptador = Boolean(v.captador)
+      const hasCaptador = Boolean((v.captadores && v.captadores.length > 0) || v.captador)
 
       const pctCorr = hasCaptador ? 40 : 50
       const pctCapt = hasCaptador ? 10 : 0
