@@ -443,7 +443,7 @@ export default function Vendas() {
   }
 
   return (
-    <div className="space-y-6 w-full max-w-full overflow-hidden">
+    <div className="space-y-6 w-full min-w-0 max-w-full">
       {/* Top Header Controls */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 w-full">
         <div className="min-w-0 flex-1">
@@ -455,13 +455,13 @@ export default function Vendas() {
             saídas
           </p>
         </div>
-        <div className="flex items-center gap-2.5 shrink-0 self-stretch sm:self-auto justify-between sm:justify-end">
-          <span className="inline-flex px-3 py-2 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400">
+        <div className="flex items-center gap-2.5 shrink-0 w-full sm:w-auto justify-between sm:justify-end">
+          <span className="inline-flex px-3 py-2 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400 shrink-0">
             {getPeriodoDates(periodo).label}
           </span>
           <Button
             onClick={handleOpenCreateModal}
-            className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2 whitespace-nowrap shrink-0"
+            className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2 whitespace-nowrap shrink-0 transition-all hover:scale-[1.02]"
           >
             <Plus className="w-4 h-4" />
             <span>Nova Venda</span>
@@ -470,7 +470,7 @@ export default function Vendas() {
       </div>
 
       {/* Filters & Search Toolbar */}
-      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 shadow-md w-full">
+      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 shadow-md w-full min-w-0">
         <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <Input
@@ -484,7 +484,7 @@ export default function Vendas() {
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Filtro Status */}
-          <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
+          <div className="flex flex-wrap items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {['todos', 'realizada', 'pendente', 'cancelada'].map((st) => (
               <button
                 key={st}
@@ -501,7 +501,7 @@ export default function Vendas() {
           </div>
 
           {/* Filtro Forma de Pagamento */}
-          <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
+          <div className="flex flex-wrap items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {[
               { id: 'todos', label: 'Todas Formas' },
               { id: 'Centralizada', label: 'Centralizada' },
@@ -522,7 +522,7 @@ export default function Vendas() {
           </div>
 
           {/* Filtro Situação Recebimento */}
-          <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
+          <div className="flex flex-wrap items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {[
               { id: 'todos', label: 'Todas Situações' },
               { id: 'Recebido', label: 'Recebido' },
@@ -564,21 +564,21 @@ export default function Vendas() {
       </div>
 
       {/* Vendas Table */}
-      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl shadow-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl shadow-lg overflow-hidden w-full min-w-0">
+        <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#232A3B]">
+          <table className="w-full min-w-[900px] text-left text-xs">
             <thead>
               <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
-                <th className="py-3.5 px-4">Imóvel & Cliente</th>
-                <th className="py-3.5 px-4">Corretor / Captador</th>
-                <th className="py-3.5 px-4 text-right">VGV</th>
-                <th className="py-3.5 px-4 text-right">Comissão Total</th>
-                <th className="py-3.5 px-4 text-right">Valor Recebido</th>
-                <th className="py-3.5 px-4 text-center">Forma</th>
-                <th className="py-3.5 px-4 text-center">Situação</th>
-                <th className="py-3.5 px-4">Data</th>
-                <th className="py-3.5 px-4 text-center">Status</th>
-                <th className="py-3.5 px-4 text-right">Ações</th>
+                <th className="py-3.5 px-4 min-w-[180px]">Imóvel & Cliente</th>
+                <th className="py-3.5 px-4 min-w-[150px]">Corretor / Captador</th>
+                <th className="py-3.5 px-4 text-right min-w-[110px]">VGV</th>
+                <th className="py-3.5 px-4 text-right min-w-[120px]">Comissão Total</th>
+                <th className="py-3.5 px-4 text-right min-w-[110px]">Valor Recebido</th>
+                <th className="py-3.5 px-4 text-center min-w-[90px]">Forma</th>
+                <th className="py-3.5 px-4 text-center min-w-[110px]">Situação</th>
+                <th className="py-3.5 px-4 min-w-[90px]">Data</th>
+                <th className="py-3.5 px-4 text-center min-w-[95px]">Status</th>
+                <th className="py-3.5 px-4 text-right min-w-[70px]">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#232A3B]">
@@ -590,10 +590,18 @@ export default function Vendas() {
                 return (
                   <tr key={v.id} className="hover:bg-[#1A2234]/50 transition-colors">
                     <td className="py-3.5 px-4 max-w-[220px]">
-                      <div className="font-semibold text-slate-100 truncate">{v.titulo_imovel}</div>
-                      <div className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5">
-                        <User className="w-3 h-3 text-slate-500" />
-                        {v.cliente || 'Cliente não informado'}
+                      <div
+                        className="font-semibold text-slate-100 truncate"
+                        title={v.titulo_imovel}
+                      >
+                        {v.titulo_imovel}
+                      </div>
+                      <div
+                        className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5"
+                        title={v.cliente || 'Cliente não informado'}
+                      >
+                        <User className="w-3 h-3 text-slate-500 shrink-0" />
+                        <span>{v.cliente || 'Cliente não informado'}</span>
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
@@ -634,7 +642,7 @@ export default function Vendas() {
                     </td>
                     <td className="py-3.5 px-4 text-center">{getFormaBadge(v.forma_pagamento)}</td>
                     <td className="py-3.5 px-4 text-center">{getSituacaoBadge(situacao)}</td>
-                    <td className="py-3.5 px-4 text-slate-400">
+                    <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
                       {new Date(v.data_venda).toLocaleDateString('pt-BR')}
                     </td>
                     <td className="py-3.5 px-4 text-center">{getStatusBadge(v.status)}</td>

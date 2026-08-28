@@ -223,7 +223,7 @@ export default function Layout() {
 
       {/* Main Container */}
       <div
-        className={`flex-1 flex flex-col min-h-screen bg-[#0B0E14] transition-all duration-300 ${
+        className={`flex-1 min-w-0 flex flex-col min-h-screen bg-[#0B0E14] transition-all duration-300 ${
           isSidebarCollapsed ? 'md:ml-[76px]' : 'md:ml-[260px]'
         }`}
       >
@@ -472,7 +472,7 @@ export default function Layout() {
         )}
 
         {/* Content Area */}
-        <main className="flex-1 p-4 md:p-6 pb-20 md:pb-8 max-w-7xl w-full mx-auto animate-fade-in">
+        <main className="flex-1 min-w-0 p-4 md:p-6 pb-20 md:pb-8 max-w-7xl w-full mx-auto animate-fade-in overflow-x-hidden">
           <Outlet />
         </main>
 
