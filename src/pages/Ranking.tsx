@@ -1,470 +1,453 @@
-import React, { useState, useEffect, useMemo } from 'react'
-import { Trophy, Award, TrendingUp, Medal, Users, Target, ChevronDown } from 'lucide-react'
-import { CorretorService, VendaService, ComissaoService } from '@/services/imobService'
-import { Corretor, Venda, Comissao } from '@/types'
-import { usePeriodo } from '@/context/PeriodoContext'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  Tooltip,
-  Cell,
-  PieChart,
-  Pie,
-} from 'recharts'
+  Trophy,
+  Medal,
+  Award,
+  Crown,
+  TrendingUp,
+  Percent,
+  Download,
+  Share2,
+  Calendar,
+  Sparkles,
+  Users,
+  Building2,
+  Printer,
+  FileDown,
+  Check,
+} from 'lucide-react'
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, Legend } from 'recharts'
+import { VendaService, CorretorService, MetaVGVService } from '@/services/imobService'
+import { Venda, Corretor, MetaVGV } from '@/types'
+import { useAuth } from '@/context/AuthContext'
+import { usePeriodo } from '@/context/PeriodoContext'
+import { Button } from '@/components/ui/button'
+import { toast } from 'sonner'
+import { AnimatedCounter } from '@/components/AnimatedCounter'
+
+interface RankingItem {
+  id: string
+  nome: string
+  email: string
+  creci?: string
+  totalVgv: number
+  totalComissao: number
+  totalVendas: number
+  ticketMedio: number
+  percentualMeta: number
+}
 
 export default function Ranking() {
+  const { user } = useAuth()
   const { periodo, getPeriodoDates } = usePeriodo()
-  const [corretores, setCorretores] = useState<Corretor[]>([])
   const [vendas, setVendas] = useState<Venda[]>([])
-  const [comissoes, setComissoes] = useState<Comissao[]>([])
+  const [corretores, setCorretores] = useState<Corretor[]>([])
+  const [metas, setMetas] = useState<MetaVGV[]>([])
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
+
+  const printAreaRef = useRef<HTMLDivElement>(null)
+
+  const loadData = async () => {
+    setLoading(true)
+    try {
+      const [vList, cList, mList] = await Promise.all([
+        VendaService.getAll(),
+        CorretorService.getAll(),
+        MetaVGVService.getAll(),
+      ])
+      setVendas(vList)
+      setCorretores(cList)
+      setMetas(mList)
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao carregar ranking.')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
-    async function load() {
-      setLoading(true)
-      try {
-        const [cList, vList, commList] = await Promise.all([
-          CorretorService.getAll(),
-          VendaService.getAll(),
-          ComissaoService.getAll(),
-        ])
-        setCorretores(cList)
-        setVendas(vList)
-        setComissoes(commList)
-      } catch (err) {
-        console.error(err)
-      } finally {
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
+    loadData()
+  }, [user])
 
-  const { start, end } = useMemo(() => getPeriodoDates(periodo), [periodo, getPeriodoDates])
+  const {
+    start,
+    end,
+    label: periodoLabel,
+  } = useMemo(() => getPeriodoDates(periodo), [periodo, getPeriodoDates])
 
-  // Processar dados dos corretores no período
-  const rankingData = useMemo(() => {
-    const vendasPeriodoRealizadas = vendas.filter((v) => {
-      if (v.status !== 'realizada') return false
+  // Calcular ranking dos corretores
+  const rankingData = useMemo<RankingItem[]>(() => {
+    // Filtrar vendas do período com status realizada
+    const periodoVendas = vendas.filter((v) => {
       const d = new Date(v.data_venda)
-      return d >= start && d <= end
+      return d >= start && d <= end && v.status === 'realizada'
     })
 
-    const totalVgvPeriodo = vendasPeriodoRealizadas.reduce((sum, v) => sum + (v.valor_vgv || 0), 0)
+    return corretores
+      .map((corr) => {
+        const cVendas = periodoVendas.filter((v) => v.corretor === corr.id)
+        const totalVgv = cVendas.reduce((acc, v) => acc + v.valor_vgv, 0)
+        const totalComissao = cVendas.reduce((acc, v) => acc + v.valor_comissao, 0)
+        const totalVendas = cVendas.length
+        const ticketMedio = totalVendas > 0 ? totalVgv / totalVendas : 0
 
-    const map: Record<
-      string,
-      {
-        id: string
-        nome: string
-        creci?: string
-        vgv: number
-        comissao: number
-        vendasCount: number
-        percentualTotal: number
-      }
-    > = {}
+        // Meta
+        const userMeta = metas.find((m) => m.corretor === corr.id && m.periodo === periodo)
+        const percentualMeta =
+          userMeta && userMeta.valor_meta > 0 ? (totalVgv / userMeta.valor_meta) * 100 : 0
 
-    corretores.forEach((c) => {
-      map[c.id] = {
-        id: c.id,
-        nome: c.nome,
-        creci: c.creci,
-        vgv: 0,
-        comissao: 0,
-        vendasCount: 0,
-        percentualTotal: 0,
-      }
-    })
-
-    vendasPeriodoRealizadas.forEach((v) => {
-      if (v.corretor && map[v.corretor]) {
-        map[v.corretor].vgv += v.valor_vgv
-        map[v.corretor].vendasCount += 1
-      }
-      if (v.captador && map[v.captador] && v.captador !== v.corretor) {
-        // captador também contabiliza contatos se aplicável
-      }
-    })
-
-    // Calcular comissões exatas recebidas/pagas a partir da coleção de comissões
-    comissoes.forEach((comm) => {
-      if (comm.corretor && map[comm.corretor]) {
-        const d = comm.data_recebimento ? new Date(comm.data_recebimento) : new Date(comm.created)
-        if (d >= start && d <= end) {
-          map[comm.corretor].comissao += comm.valor
+        return {
+          id: corr.id,
+          nome: corr.nome,
+          email: corr.email,
+          creci: corr.creci,
+          totalVgv,
+          totalComissao,
+          totalVendas,
+          ticketMedio,
+          percentualMeta,
         }
-      }
-    })
+      })
+      .sort((a, b) => b.totalVgv - a.totalVgv)
+  }, [vendas, corretores, metas, start, end, periodo])
 
-    // Ordenar por VGV decrescente
-    const list = Object.values(map)
-      .map((item) => ({
-        ...item,
-        percentualTotal: totalVgvPeriodo > 0 ? (item.vgv / totalVgvPeriodo) * 100 : 0,
-      }))
-      .sort((a, b) => b.vgv - a.vgv)
+  const totalGeralVgv = useMemo(
+    () => rankingData.reduce((acc, r) => acc + r.totalVgv, 0),
+    [rankingData],
+  )
+  const totalGeralVendas = useMemo(
+    () => rankingData.reduce((acc, r) => acc + r.totalVendas, 0),
+    [rankingData],
+  )
 
-    return { list, totalVgvPeriodo }
-  }, [corretores, vendas, comissoes, start, end])
+  // Top 3 do Pódio
+  const top1 = rankingData[0]
+  const top2 = rankingData[1]
+  const top3 = rankingData[2]
 
   const formatCurrency = (val: number) => {
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   }
 
-  const PALETTE = ['#E63946', '#F97316', '#FBBF24', '#34D399', '#38BDF8', '#818CF8', '#A855F7']
-
-  const top3 = rankingData.list.slice(0, 3)
-
-  // Gráfico Horizontal VGV por Corretor
-  const barChartData = rankingData.list.map((item, idx) => ({
-    name: item.nome.split(' ')[0],
-    fullName: item.nome,
-    vgv: item.vgv,
-    color: PALETTE[idx % PALETTE.length],
-  }))
-
-  // Gráfico Donut de Participação
-  const pieChartData = rankingData.list
-    .filter((item) => item.vgv > 0)
-    .map((item, idx) => ({
-      name: item.nome,
-      value: item.vgv,
-      color: PALETTE[idx % PALETTE.length],
-    }))
+  // Função para imprimir/gerar PDF formatado exatamente como na tela
+  const handlePrintPDF = () => {
+    window.print()
+  }
 
   return (
-    <div className="space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+    <div className="space-y-6 animate-fade-in max-w-full overflow-hidden">
+      {/* Top Header Controls (Não impresso) */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
         <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">
-            Ranking de Performance dos Corretores
+          <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            <Trophy className="w-6 h-6 text-amber-400" />
+            Ranking & Pódio de Vendas
           </h2>
           <p className="text-xs text-slate-400">
-            Resultados de vendas, volume de VGV gerado e repasses de comissão no período
+            Destaque dos melhores corretores por VGV, comissão e conversão no período
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-400">Filtrando por:</span>
-          <span className="px-3 py-1 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400 shadow-sm">
-            {getPeriodoDates(periodo).label}
+        <div className="flex items-center gap-2.5 shrink-0 self-stretch sm:self-auto justify-between sm:justify-end">
+          <span className="inline-flex px-3 py-1.5 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-amber-400">
+            {periodoLabel}
           </span>
+          <Button
+            onClick={handlePrintPDF}
+            className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-9 px-3.5 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Imprimir / Gerar PDF</span>
+          </Button>
         </div>
       </div>
 
-      {/* PÓDIO TOP 3 */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
-        {/* 2º Lugar - Prata */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between order-2 md:order-1 relative overflow-hidden group hover:border-slate-400/40 transition-all">
-          <div className="flex items-center justify-between mb-3">
+      {/* ÁREA DE CONTEÚDO IMPRIMÍVEL (Exatamente como aparece na tela) */}
+      <div
+        ref={printAreaRef}
+        className="space-y-6 print:m-0 print:p-4 print:bg-white print:text-black"
+      >
+        {/* Cabeçalho da Impressão */}
+        <div className="hidden print:flex items-center justify-between border-b pb-4 mb-4 border-slate-300">
+          <div>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight">
+              Imob<span className="text-[#E63946]">Gestor</span> • Ranking de Corretores
+            </h1>
+            <p className="text-xs text-slate-600 font-medium mt-0.5">
+              Relatório de Desempenho e Classificação Geral de Vendas
+            </p>
+          </div>
+          <div className="text-right">
+            <span className="text-xs font-bold px-3 py-1 bg-slate-100 border border-slate-300 rounded-lg text-slate-800">
+              Período: {periodoLabel}
+            </span>
+            <p className="text-[10px] text-slate-500 mt-1">
+              Emitido em: {new Date().toLocaleDateString('pt-BR')} às{' '}
+              {new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+            </p>
+          </div>
+        </div>
+
+        {/* Resumo do Período */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div className="p-4 rounded-2xl bg-[#121722] border border-[#232A3B] shadow-md print:bg-slate-50 print:border-slate-200">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-1 print:text-slate-600">
+              <span>VGV Total do Período</span>
+              <TrendingUp className="w-4 h-4 text-[#E63946]" />
+            </div>
+            <div className="text-2xl font-extrabold text-white print:text-slate-900">
+              <AnimatedCounter value={totalGeralVgv} formatter={formatCurrency} />
+            </div>
+            <p className="text-[11px] text-slate-400 print:text-slate-500 mt-1">
+              Soma de todas as negociações
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#121722] border border-[#232A3B] shadow-md print:bg-slate-50 print:border-slate-200">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-1 print:text-slate-600">
+              <span>Total de Imóveis Vendidos</span>
+              <Building2 className="w-4 h-4 text-emerald-400" />
+            </div>
+            <div className="text-2xl font-extrabold text-emerald-400 print:text-emerald-700">
+              {totalGeralVendas} {totalGeralVendas === 1 ? 'venda' : 'vendas'}
+            </div>
+            <p className="text-[11px] text-slate-400 print:text-slate-500 mt-1">
+              Negociações concluídas
+            </p>
+          </div>
+
+          <div className="p-4 rounded-2xl bg-[#121722] border border-[#232A3B] shadow-md print:bg-slate-50 print:border-slate-200">
+            <div className="flex items-center justify-between text-xs text-slate-400 mb-1 print:text-slate-600">
+              <span>Corretores Atuantes</span>
+              <Users className="w-4 h-4 text-amber-400" />
+            </div>
+            <div className="text-2xl font-extrabold text-amber-400 print:text-amber-700">
+              {rankingData.filter((r) => r.totalVendas > 0).length} de {corretores.length}
+            </div>
+            <p className="text-[11px] text-slate-400 print:text-slate-500 mt-1">
+              Corretores com vendas no período
+            </p>
+          </div>
+        </div>
+
+        {/* PÓDIO TOP 3 VISUAL COM MEDALHAS */}
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-6 shadow-xl relative overflow-hidden print:bg-slate-50 print:border-slate-200">
+          <div className="flex items-center justify-between pb-4 border-b border-[#232A3B] mb-6 print:border-slate-200">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-slate-200 to-slate-400 flex items-center justify-center font-black text-slate-900 shadow-md text-sm">
-                2º
+              <Crown className="w-5 h-5 text-amber-400" />
+              <h3 className="font-bold text-white text-base print:text-slate-900">
+                Pódio dos Campeões de Vendas
+              </h3>
+            </div>
+            <span className="text-xs text-slate-400 print:text-slate-600 font-medium">
+              Classificação por VGV
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-end pt-4">
+            {/* 2º LUGAR (Prata) */}
+            <div className="order-2 md:order-1 flex flex-col items-center text-center p-5 rounded-2xl bg-[#0B0E14] border border-slate-700/60 shadow-lg relative print:bg-white print:border-slate-300">
+              <div className="w-14 h-14 rounded-full bg-slate-300/20 border-2 border-slate-300 flex items-center justify-center mb-3 shadow-md">
+                <Medal className="w-7 h-7 text-slate-300" />
               </div>
-              <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                Prata
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-300/20 text-slate-300 border border-slate-300/30 mb-2">
+                2º Lugar • Prata
               </span>
-            </div>
-            <Medal className="w-5 h-5 text-slate-300" />
-          </div>
+              <h4 className="font-extrabold text-white text-base truncate max-w-full print:text-slate-900">
+                {top2 ? top2.nome : 'Sem vendas'}
+              </h4>
+              <p className="text-[11px] text-slate-400 print:text-slate-500 mb-3">
+                {top2?.creci ? `CRECI: ${top2.creci}` : 'Corretor'}
+              </p>
 
-          <div>
-            <h3 className="font-bold text-white text-lg truncate">
-              {top3[1]?.nome || 'Sem dados'}
-            </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {top3[1]?.vendasCount || 0} {top3[1]?.vendasCount === 1 ? 'venda' : 'vendas'}{' '}
-              realizadas
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 mt-4 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs">
-              <div>
-                <span className="text-[10px] text-slate-400 font-medium">VGV Total</span>
-                <p className="font-bold text-emerald-400 text-sm mt-0.5">
-                  {formatCurrency(top3[1]?.vgv || 0)}
-                </p>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 font-medium">Repasses</span>
-                <p className="font-bold text-white text-sm mt-0.5">
-                  {formatCurrency(top3[1]?.comissao || 0)}
-                </p>
+              <div className="w-full pt-3 border-t border-[#232A3B] print:border-slate-200 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-300 print:text-slate-700">
+                  <span>VGV:</span>
+                  <span className="font-bold text-white print:text-slate-900">
+                    {top2 ? formatCurrency(top2.totalVgv) : 'R$ 0,00'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400 print:text-slate-600 text-[11px]">
+                  <span>Vendas:</span>
+                  <span className="font-semibold text-slate-200 print:text-slate-800">
+                    {top2 ? `${top2.totalVendas} negociações` : '0'}
+                  </span>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
 
-        {/* 1º Lugar - Ouro (Destaque Maior) */}
-        <div className="bg-[#121722] border-2 border-[#FBBF24]/50 rounded-2xl p-6 shadow-xl shadow-amber-500/10 flex flex-col justify-between order-1 md:order-2 relative overflow-hidden group hover:border-[#FBBF24] transition-all transform md:-translate-y-2 bg-gradient-to-b from-[#121722] to-[#1a1c1e]">
-          <div className="absolute top-0 right-0 w-24 h-24 bg-[#FBBF24]/10 rounded-full blur-2xl pointer-events-none" />
-
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-amber-300 to-yellow-600 flex items-center justify-center font-black text-amber-950 shadow-lg text-base">
-                1º
+            {/* 1º LUGAR (Ouro - Destaque Central) */}
+            <div className="order-1 md:order-2 flex flex-col items-center text-center p-6 rounded-2xl bg-gradient-to-b from-amber-500/15 via-[#0B0E14] to-[#0B0E14] border-2 border-amber-500/60 shadow-2xl relative transform md:-translate-y-3 print:bg-white print:border-amber-500">
+              <div className="w-16 h-16 rounded-full bg-amber-400/20 border-2 border-amber-400 flex items-center justify-center mb-3 shadow-lg animate-pulse">
+                <Crown className="w-8 h-8 text-amber-400" />
               </div>
-              <div>
-                <span className="text-xs font-bold text-amber-400 uppercase tracking-wider block leading-none">
-                  Campeão do Período
-                </span>
-                <span className="text-[10px] text-slate-400">Medalha de Ouro</span>
-              </div>
-            </div>
-            <Trophy className="w-6 h-6 text-[#FBBF24]" />
-          </div>
-
-          <div>
-            <h3 className="font-extrabold text-white text-xl truncate">
-              {top3[0]?.nome || 'Sem dados'}
-            </h3>
-            <p className="text-xs text-amber-400/90 font-medium mt-0.5">
-              {top3[0]?.vendasCount || 0} {top3[0]?.vendasCount === 1 ? 'venda' : 'vendas'}{' '}
-              realizadas ({top3[0]?.percentualTotal?.toFixed(1) || 0}% do total)
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 mt-4 p-3.5 rounded-xl bg-[#0B0E14] border border-[#FBBF24]/20 text-xs">
-              <div>
-                <span className="text-[10px] text-slate-400 font-medium">VGV Total</span>
-                <p className="font-extrabold text-emerald-400 text-base mt-0.5">
-                  {formatCurrency(top3[0]?.vgv || 0)}
-                </p>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 font-medium">Repasses Ganhos</span>
-                <p className="font-extrabold text-amber-400 text-base mt-0.5">
-                  {formatCurrency(top3[0]?.comissao || 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* 3º Lugar - Bronze */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between order-3 relative overflow-hidden group hover:border-amber-700/40 transition-all">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-600 to-amber-900 flex items-center justify-center font-black text-amber-100 shadow-md text-sm">
-                3º
-              </div>
-              <span className="text-xs font-bold text-amber-600 uppercase tracking-wider">
-                Bronze
+              <span className="px-3 py-1 rounded-full text-xs font-extrabold bg-amber-400 text-slate-950 shadow-md mb-2">
+                1º Lugar • Ouro (Campeão)
               </span>
-            </div>
-            <Medal className="w-5 h-5 text-amber-600" />
-          </div>
+              <h4 className="font-black text-white text-lg truncate max-w-full print:text-slate-900">
+                {top1 ? top1.nome : 'Sem vendas'}
+              </h4>
+              <p className="text-xs text-amber-300/80 mb-4 font-medium">
+                {top1?.creci ? `CRECI: ${top1.creci}` : 'Top Performer'}
+              </p>
 
-          <div>
-            <h3 className="font-bold text-white text-lg truncate">
-              {top3[2]?.nome || 'Sem dados'}
+              <div className="w-full pt-3 border-t border-amber-500/30 print:border-slate-200 space-y-1.5 text-xs">
+                <div className="flex justify-between text-slate-200 print:text-slate-700">
+                  <span className="font-medium">VGV Acumulado:</span>
+                  <span className="font-black text-amber-400 text-sm print:text-amber-700">
+                    {top1 ? formatCurrency(top1.totalVgv) : 'R$ 0,00'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-300 print:text-slate-600 text-[11px]">
+                  <span>Total Vendas:</span>
+                  <span className="font-bold text-white print:text-slate-900">
+                    {top1 ? `${top1.totalVendas} imóveis vendidos` : '0'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400 print:text-slate-600 text-[11px]">
+                  <span>Ticket Médio:</span>
+                  <span className="font-medium text-slate-300 print:text-slate-800">
+                    {top1 ? formatCurrency(top1.ticketMedio) : 'R$ 0,00'}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* 3º LUGAR (Bronze) */}
+            <div className="order-3 flex flex-col items-center text-center p-5 rounded-2xl bg-[#0B0E14] border border-amber-800/50 shadow-lg relative print:bg-white print:border-slate-300">
+              <div className="w-14 h-14 rounded-full bg-amber-700/20 border-2 border-amber-700 flex items-center justify-center mb-3 shadow-md">
+                <Award className="w-7 h-7 text-amber-600" />
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-700/20 text-amber-500 border border-amber-700/30 mb-2">
+                3º Lugar • Bronze
+              </span>
+              <h4 className="font-extrabold text-white text-base truncate max-w-full print:text-slate-900">
+                {top3 ? top3.nome : 'Sem vendas'}
+              </h4>
+              <p className="text-[11px] text-slate-400 print:text-slate-500 mb-3">
+                {top3?.creci ? `CRECI: ${top3.creci}` : 'Corretor'}
+              </p>
+
+              <div className="w-full pt-3 border-t border-[#232A3B] print:border-slate-200 space-y-1 text-xs">
+                <div className="flex justify-between text-slate-300 print:text-slate-700">
+                  <span>VGV:</span>
+                  <span className="font-bold text-white print:text-slate-900">
+                    {top3 ? formatCurrency(top3.totalVgv) : 'R$ 0,00'}
+                  </span>
+                </div>
+                <div className="flex justify-between text-slate-400 print:text-slate-600 text-[11px]">
+                  <span>Vendas:</span>
+                  <span className="font-semibold text-slate-200 print:text-slate-800">
+                    {top3 ? `${top3.totalVendas} negociações` : '0'}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* TABELA COMPLETA DE CLASSIFICAÇÃO */}
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl shadow-lg overflow-hidden print:bg-white print:border-slate-300">
+          <div className="p-4 border-b border-[#232A3B] flex items-center justify-between print:border-slate-300">
+            <h3 className="font-bold text-white text-sm print:text-slate-900">
+              Classificação Geral dos Corretores
             </h3>
-            <p className="text-xs text-slate-400 mt-0.5">
-              {top3[2]?.vendasCount || 0} {top3[2]?.vendasCount === 1 ? 'venda' : 'vendas'}{' '}
-              realizadas
-            </p>
-
-            <div className="grid grid-cols-2 gap-2 mt-4 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs">
-              <div>
-                <span className="text-[10px] text-slate-400 font-medium">VGV Total</span>
-                <p className="font-bold text-emerald-400 text-sm mt-0.5">
-                  {formatCurrency(top3[2]?.vgv || 0)}
-                </p>
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] text-slate-400 font-medium">Repasses</span>
-                <p className="font-bold text-white text-sm mt-0.5">
-                  {formatCurrency(top3[2]?.comissao || 0)}
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Gráficos de Ranking: Barras Horizontais & Rosca de Participação */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Gráfico Barras VGV por Corretor */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg">
-          <h3 className="font-bold text-white text-base mb-1">VGV por Corretor</h3>
-          <p className="text-xs text-slate-400 mb-4">Volume total negociado no período</p>
-
-          <div className="h-[240px] w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart
-                data={barChartData}
-                layout="vertical"
-                margin={{ top: 5, right: 20, left: 20, bottom: 5 }}
-              >
-                <XAxis
-                  type="number"
-                  stroke="#64748B"
-                  fontSize={11}
-                  tickFormatter={(v) =>
-                    v >= 1000000 ? `${(v / 1000000).toFixed(1)}M` : `${v / 1000}k`
-                  }
-                />
-                <YAxis
-                  dataKey="name"
-                  type="category"
-                  stroke="#94A3B8"
-                  fontSize={11}
-                  tickLine={false}
-                />
-                <Tooltip
-                  contentStyle={{
-                    backgroundColor: '#0E121B',
-                    borderColor: '#232A3B',
-                    borderRadius: '8px',
-                    fontSize: '12px',
-                    color: '#fff',
-                  }}
-                  formatter={(val: any) => [formatCurrency(Number(val)), 'VGV Total']}
-                />
-                <Bar dataKey="vgv" radius={[0, 6, 6, 0]} barSize={18}>
-                  {barChartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Gráfico Rosca Participação */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between">
-          <div>
-            <h3 className="font-bold text-white text-base mb-1">Participação no VGV</h3>
-            <p className="text-xs text-slate-400 mb-2">Fatia de contribuição de cada corretor</p>
+            <span className="text-xs text-slate-400 print:text-slate-600">
+              Total de {rankingData.length} profissionais
+            </span>
           </div>
 
-          <div className="h-[180px] w-full">
-            {pieChartData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie
-                    data={pieChartData}
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={45}
-                    outerRadius={75}
-                    paddingAngle={4}
-                    dataKey="value"
-                  >
-                    {pieChartData.map((entry, index) => (
-                      <Cell
-                        key={`cell-pie-${index}`}
-                        fill={entry.color}
-                        stroke="#121722"
-                        strokeWidth={2}
-                      />
-                    ))}
-                  </Pie>
-                  <Tooltip
-                    contentStyle={{
-                      backgroundColor: '#0E121B',
-                      borderColor: '#232A3B',
-                      borderRadius: '8px',
-                      fontSize: '12px',
-                    }}
-                    formatter={(val: any) => [formatCurrency(Number(val)), 'VGV']}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs text-slate-500">
-                Sem vendas registradas no período
-              </div>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">
-            {pieChartData.map((d) => (
-              <div key={d.name} className="flex items-center gap-1.5 text-xs">
-                <span
-                  className="w-2.5 h-2.5 rounded-full shrink-0"
-                  style={{ backgroundColor: d.color }}
-                />
-                <span className="text-slate-300 truncate">{d.name}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-
-      {/* Tabela Ranking Completa */}
-      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl shadow-lg overflow-hidden">
-        <div className="p-4 border-b border-[#232A3B] flex items-center justify-between">
-          <div>
-            <h3 className="font-bold text-white text-base">Tabela de Classificação Geral</h3>
-            <p className="text-xs text-slate-400">Detalhamento individual de vendas e comissões</p>
-          </div>
-          <Users className="w-5 h-5 text-slate-500" />
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
-                <th className="py-3.5 px-4 text-center">Posição</th>
-                <th className="py-3.5 px-4">Corretor</th>
-                <th className="py-3.5 px-4 text-center">Nº Vendas</th>
-                <th className="py-3.5 px-4 text-right">VGV Realizado</th>
-                <th className="py-3.5 px-4 text-center">% do Total</th>
-                <th className="py-3.5 px-4 text-right">Comissões Recebidas</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-[#232A3B]">
-              {rankingData.list.map((c, idx) => (
-                <tr key={c.id} className="hover:bg-[#1A2234]/50 transition-colors">
-                  <td className="py-3.5 px-4 text-center">
-                    <span
-                      className={`inline-flex items-center justify-center w-6 h-6 rounded-full font-bold text-xs ${
-                        idx === 0
-                          ? 'bg-amber-400/20 text-amber-400 border border-amber-400/30'
-                          : idx === 1
-                            ? 'bg-slate-300/20 text-slate-300 border border-slate-300/30'
-                            : idx === 2
-                              ? 'bg-amber-700/20 text-amber-500 border border-amber-700/30'
-                              : 'text-slate-500'
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead>
+                <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider print:bg-slate-100 print:text-slate-700 print:border-slate-300">
+                  <th className="py-3 px-4 text-center w-12">Pos.</th>
+                  <th className="py-3 px-4">Corretor</th>
+                  <th className="py-3 px-4 text-center">Vendas Fechadas</th>
+                  <th className="py-3 px-4 text-right">VGV Total</th>
+                  <th className="py-3 px-4 text-right">Ticket Médio</th>
+                  <th className="py-3 px-4 text-right">Comissões Geradas</th>
+                  <th className="py-3 px-4 text-right">Atingimento da Meta</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[#232A3B] print:divide-slate-200">
+                {rankingData.map((r, index) => {
+                  const position = index + 1
+                  return (
+                    <tr
+                      key={r.id}
+                      className={`hover:bg-[#1A2234]/50 transition-colors print:hover:bg-transparent ${
+                        position === 1 ? 'bg-amber-500/5 print:bg-amber-50' : ''
                       }`}
                     >
-                      {idx + 1}º
-                    </span>
-                  </td>
-                  <td className="py-3.5 px-4">
-                    <span className="font-semibold text-slate-100">{c.nome}</span>
-                    {c.creci && (
-                      <span className="block text-[11px] text-slate-500">CRECI: {c.creci}</span>
-                    )}
-                  </td>
-                  <td className="py-3.5 px-4 text-center font-bold text-slate-200">
-                    {c.vendasCount}
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-bold text-emerald-400 tabular-nums">
-                    {formatCurrency(c.vgv)}
-                  </td>
-                  <td className="py-3.5 px-4 text-center font-medium text-slate-300">
-                    {c.percentualTotal.toFixed(1)}%
-                  </td>
-                  <td className="py-3.5 px-4 text-right font-bold text-white tabular-nums">
-                    {formatCurrency(c.comissao)}
-                  </td>
-                </tr>
-              ))}
+                      <td className="py-3.5 px-4 text-center">
+                        {position === 1 ? (
+                          <span className="w-6 h-6 rounded-full bg-amber-400 text-slate-950 font-black inline-flex items-center justify-center text-xs shadow">
+                            1
+                          </span>
+                        ) : position === 2 ? (
+                          <span className="w-6 h-6 rounded-full bg-slate-300 text-slate-900 font-bold inline-flex items-center justify-center text-xs shadow">
+                            2
+                          </span>
+                        ) : position === 3 ? (
+                          <span className="w-6 h-6 rounded-full bg-amber-700 text-white font-bold inline-flex items-center justify-center text-xs shadow">
+                            3
+                          </span>
+                        ) : (
+                          <span className="font-bold text-slate-500">{position}º</span>
+                        )}
+                      </td>
+                      <td className="py-3.5 px-4">
+                        <div className="font-bold text-slate-100 print:text-slate-900">
+                          {r.nome}
+                        </div>
+                        <div className="text-[11px] text-slate-400 print:text-slate-500">
+                          {r.email} {r.creci ? `• CRECI ${r.creci}` : ''}
+                        </div>
+                      </td>
+                      <td className="py-3.5 px-4 text-center font-bold text-slate-200 print:text-slate-800">
+                        {r.totalVendas}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-extrabold text-white print:text-slate-900 tabular-nums">
+                        {formatCurrency(r.totalVgv)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right text-slate-300 print:text-slate-700 tabular-nums">
+                        {formatCurrency(r.ticketMedio)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right font-bold text-emerald-400 print:text-emerald-700 tabular-nums">
+                        {formatCurrency(r.totalComissao)}
+                      </td>
+                      <td className="py-3.5 px-4 text-right">
+                        {r.percentualMeta > 0 ? (
+                          <span
+                            className={`inline-block px-2 py-0.5 rounded text-[11px] font-bold ${
+                              r.percentualMeta >= 100
+                                ? 'bg-emerald-500/20 text-emerald-400 print:text-emerald-800'
+                                : 'bg-blue-500/20 text-blue-400 print:text-blue-800'
+                            }`}
+                          >
+                            {r.percentualMeta.toFixed(0)}% da meta
+                          </span>
+                        ) : (
+                          <span className="text-slate-500 text-[11px]">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  )
+                })}
 
-              {rankingData.list.length === 0 && (
-                <tr>
-                  <td colSpan={6} className="py-12 text-center text-slate-500">
-                    Nenhum corretor cadastrado.
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                {rankingData.length === 0 && (
+                  <tr>
+                    <td colSpan={7} className="py-10 text-center text-slate-500">
+                      Nenhum dado encontrado para o período selecionado.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

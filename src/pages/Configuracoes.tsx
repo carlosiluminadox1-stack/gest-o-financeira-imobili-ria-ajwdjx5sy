@@ -6,19 +6,31 @@ import {
   Plus,
   Trash2,
   Edit2,
-  CheckCircle2,
   Save,
   Loader2,
+  Shield,
   ShieldAlert,
   Building2,
   UserCheck,
+  UserPlus,
+  KeyRound,
+  Sun,
+  Moon,
+  Volume2,
+  VolumeX,
+  Palette,
+  Bell,
+  Check,
 } from 'lucide-react'
-import { ConfigService, CorretorService } from '@/services/imobService'
-import { Configuracoes, Corretor } from '@/types'
+import { ConfigService, CorretorService, UserService } from '@/services/imobService'
+import { Configuracoes, Corretor, SystemUser } from '@/types'
 import { useAuth } from '@/context/AuthContext'
+import { useTheme } from '@/context/ThemeContext'
+import { useContasAlert } from '@/context/ContasAlertContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Switch } from '@/components/ui/switch'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
   Dialog,
   DialogContent,
@@ -30,9 +42,14 @@ import {
 import { toast } from 'sonner'
 
 export default function ConfiguracoesPage() {
-  const { user } = useAuth()
+  const { user, isSocio } = useAuth()
+  const { theme, setTheme, toggleTheme } = useTheme()
+  const { soundEnabled, setSoundEnabled, toggleSound } = useContasAlert()
+
+  const [activeTab, setActiveTab] = useState('usuarios')
   const [config, setConfig] = useState<Configuracoes | null>(null)
   const [corretores, setCorretores] = useState<Corretor[]>([])
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>([])
   const [loading, setLoading] = useState(true)
 
   // Config Form
@@ -42,7 +59,7 @@ export default function ConfiguracoesPage() {
   const [pctPadrao, setPctPadrao] = useState(6)
   const [savingConfig, setSavingConfig] = useState(false)
 
-  // Modal Corretor
+  // Modal Corretor (Apenas Nomes para Vendas)
   const [isCorretorModalOpen, setIsCorretorModalOpen] = useState(false)
   const [editingCorretor, setEditingCorretor] = useState<Corretor | null>(null)
   const [cNome, setCNome] = useState('')
@@ -52,14 +69,25 @@ export default function ConfiguracoesPage() {
   const [cAtivo, setCAtivo] = useState(true)
   const [savingCorretor, setSavingCorretor] = useState(false)
 
+  // Modal Usuário do Sistema (Login Sócio / Secretaria)
+  const [isUserModalOpen, setIsUserModalOpen] = useState(false)
+  const [editingUser, setEditingUser] = useState<SystemUser | null>(null)
+  const [uName, setUName] = useState('')
+  const [uEmail, setUEmail] = useState('')
+  const [uPassword, setUPassword] = useState('')
+  const [uPerfil, setUPerfil] = useState<'socio' | 'secretaria'>('secretaria')
+  const [savingUser, setSavingUser] = useState(false)
+
   const loadData = async () => {
     setLoading(true)
     try {
-      const [cList, uConfig] = await Promise.all([
+      const [cList, uConfig, uUsers] = await Promise.all([
         CorretorService.getAll(),
         user ? ConfigService.getForUser(user.id) : null,
+        isSocio ? UserService.getAll().catch(() => []) : Promise.resolve([]),
       ])
       setCorretores(cList)
+      setSystemUsers(uUsers)
       if (uConfig) {
         setConfig(uConfig)
         setPctImob(uConfig.percentual_imobiliaria)
@@ -69,7 +97,7 @@ export default function ConfiguracoesPage() {
       }
     } catch (err) {
       console.error(err)
-      toast.error('Erro ao carregar configurações.')
+      toast.error('Erro ao carregar dados de configurações.')
     } finally {
       setLoading(false)
     }
@@ -77,7 +105,7 @@ export default function ConfiguracoesPage() {
 
   useEffect(() => {
     loadData()
-  }, [user])
+  }, [user, isSocio])
 
   const handleSaveConfig = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -109,7 +137,81 @@ export default function ConfiguracoesPage() {
     }
   }
 
-  // Corretor Actions
+  // --- Usuários do Sistema Actions ---
+  const handleOpenCreateUser = () => {
+    setEditingUser(null)
+    setUName('')
+    setUEmail('')
+    setUPassword('')
+    setUPerfil('secretaria')
+    setIsUserModalOpen(true)
+  }
+
+  const handleOpenEditUser = (u: SystemUser) => {
+    setEditingUser(u)
+    setUName(u.name || '')
+    setUEmail(u.email || '')
+    setUPassword('')
+    setUPerfil((u.perfil as any) === 'socio' ? 'socio' : 'secretaria')
+    setIsUserModalOpen(true)
+  }
+
+  const handleSaveUser = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!uEmail.trim() || !uName.trim()) {
+      toast.error('Nome e e-mail são obrigatórios.')
+      return
+    }
+
+    if (!editingUser && (!uPassword || uPassword.length < 8)) {
+      toast.error('A senha deve ter no mínimo 8 caracteres.')
+      return
+    }
+
+    setSavingUser(true)
+    try {
+      if (editingUser) {
+        await UserService.update(editingUser.id, {
+          name: uName,
+          email: uEmail,
+          perfil: uPerfil,
+          password: uPassword.trim() ? uPassword : undefined,
+        })
+        toast.success('Usuário atualizado com sucesso!')
+      } else {
+        await UserService.create({
+          name: uName,
+          email: uEmail,
+          password: uPassword,
+          perfil: uPerfil,
+        })
+        toast.success(`Usuário criado com perfil ${uPerfil === 'socio' ? 'Sócio' : 'Secretária'}!`)
+      }
+      setIsUserModalOpen(false)
+      loadData()
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao salvar usuário.')
+    } finally {
+      setSavingUser(false)
+    }
+  }
+
+  const handleDeleteUser = async (u: SystemUser) => {
+    if (u.id === user?.id) {
+      toast.error('Você não pode excluir seu próprio usuário logado!')
+      return
+    }
+    if (!confirm(`Deseja realmente remover o usuário "${u.name || u.email}"?`)) return
+    try {
+      await UserService.delete(u.id)
+      toast.success('Usuário excluído com sucesso!')
+      loadData()
+    } catch (err) {
+      toast.error('Erro ao excluir usuário.')
+    }
+  }
+
+  // --- Corretor (Cadastros para Vendas) Actions ---
   const handleOpenCreateCorretor = () => {
     setEditingCorretor(null)
     setCNome('')
@@ -179,151 +281,231 @@ export default function ConfiguracoesPage() {
   }
 
   return (
-    <div className="space-y-6 animate-fade-in max-w-5xl">
+    <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
       {/* Header */}
-      <div>
-        <h2 className="text-xl font-bold text-white tracking-tight">
-          Configurações da Imobiliária
-        </h2>
-        <p className="text-xs text-slate-400">
-          Defina as regras padrão de repasse de comissões e gerencie sua equipe de corretores
-        </p>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white tracking-tight flex items-center gap-2">
+            <SettingsIcon className="w-6 h-6 text-[#E63946]" />
+            Configurações do Sistema
+          </h2>
+          <p className="text-xs text-slate-400 mt-0.5">
+            Gerenciamento de usuários e permissões, corretores, comissões, alertas e preferências
+          </p>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Bloco 1: Divisão Padrão de Comissões */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center gap-2.5 pb-4 border-b border-[#232A3B] mb-4">
-            <div className="w-8 h-8 rounded-lg bg-[#E63946]/15 flex items-center justify-center text-[#E63946]">
+      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+        <TabsList className="bg-[#121722] border border-[#232A3B] p-1 h-auto flex flex-wrap gap-1 rounded-xl">
+          <TabsTrigger
+            value="usuarios"
+            className="data-[state=active]:bg-[#E63946] data-[state=active]:text-white text-xs font-semibold px-4 py-2 rounded-lg gap-2 text-slate-300"
+          >
+            <Shield className="w-4 h-4" />
+            <span>Usuários & Permissões</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="corretores"
+            className="data-[state=active]:bg-[#E63946] data-[state=active]:text-white text-xs font-semibold px-4 py-2 rounded-lg gap-2 text-slate-300"
+          >
+            <Users className="w-4 h-4" />
+            <span>Cadastros de Corretores</span>
+          </TabsTrigger>
+          {isSocio && (
+            <TabsTrigger
+              value="comissoes"
+              className="data-[state=active]:bg-[#E63946] data-[state=active]:text-white text-xs font-semibold px-4 py-2 rounded-lg gap-2 text-slate-300"
+            >
               <Percent className="w-4 h-4" />
+              <span>Regras de Comissão</span>
+            </TabsTrigger>
+          )}
+          <TabsTrigger
+            value="preferencias"
+            className="data-[state=active]:bg-[#E63946] data-[state=active]:text-white text-xs font-semibold px-4 py-2 rounded-lg gap-2 text-slate-300"
+          >
+            <Palette className="w-4 h-4" />
+            <span>Aparência & Alertas</span>
+          </TabsTrigger>
+        </TabsList>
+
+        {/* ============================================================== */}
+        {/* ABA 1: USUÁRIOS E PERMISSÕES (SÓCIO VS SECRETARIA) */}
+        {/* ============================================================== */}
+        <TabsContent value="usuarios" className="space-y-4 pt-2">
+          <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#232A3B]">
+              <div>
+                <h3 className="font-bold text-white text-base flex items-center gap-2">
+                  <Shield className="w-5 h-5 text-[#E63946]" />
+                  Usuários com Acesso ao Sistema
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Crie acessos para <strong>Sócio</strong> (acesso completo) e{' '}
+                  <strong>Secretária</strong> (apenas lançar vendas e despesas).
+                </p>
+              </div>
+
+              {isSocio && (
+                <Button
+                  onClick={handleOpenCreateUser}
+                  className="bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold gap-1.5 h-9"
+                >
+                  <UserPlus className="w-4 h-4" />
+                  <span>Novo Usuário</span>
+                </Button>
+              )}
             </div>
-            <div>
-              <h3 className="font-bold text-white text-base">Divisão Automática de Comissão</h3>
-              <p className="text-xs text-slate-400">Distribuição aplicada ao cadastrar vendas</p>
+
+            {/* Informação sobre os perfis */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-4 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500/15 text-red-400 border border-red-500/30">
+                    Perfil: Sócio / Administrador
+                  </span>
+                  <Shield className="w-4 h-4 text-red-400" />
+                </div>
+                <p className="text-xs text-slate-300">
+                  Tem <strong>poder total</strong> sobre o sistema. Visualiza e opera todos os
+                  menus: Painel, Vendas, Comissões, Metas VGV, Fluxo de Caixa, Ranking de
+                  Corretores, Notas Fiscais, Fechamento e Configurações.
+                </p>
+              </div>
+
+              <div className="p-4 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+                    Perfil: Secretária
+                  </span>
+                  <UserCheck className="w-4 h-4 text-amber-400" />
+                </div>
+                <p className="text-xs text-slate-300">
+                  Acesso focado na <strong>operação diária</strong>: lançar novas vendas, acompanhar
+                  lançamentos e registrar despesas/receitas no Fluxo de Caixa. Menus estratégicos
+                  ficam ocultos.
+                </p>
+              </div>
+            </div>
+
+            {/* Lista de Usuários */}
+            <div className="space-y-3 pt-2">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Usuários Cadastrados ({systemUsers.length})
+              </h4>
+
+              <div className="divide-y divide-[#232A3B] border border-[#232A3B] rounded-xl overflow-hidden bg-[#0B0E14]">
+                {systemUsers.map((u) => {
+                  const isUserSocio = u.perfil === 'socio' || u.perfil === 'administrador'
+                  return (
+                    <div
+                      key={u.id}
+                      className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:bg-[#1A1F2E]/40 transition-colors"
+                    >
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2.5">
+                          <span className="font-bold text-white text-sm">
+                            {u.name || 'Sem nome'}
+                          </span>
+                          {u.id === user?.id && (
+                            <span className="text-[10px] bg-slate-700 text-slate-200 px-1.5 py-0.2 rounded font-semibold">
+                              Você
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-bold px-2 py-0.5 rounded ${
+                              isUserSocio
+                                ? 'bg-red-500/15 text-red-400 border border-red-500/25'
+                                : 'bg-amber-500/15 text-amber-400 border border-amber-500/25'
+                            }`}
+                          >
+                            {isUserSocio ? 'Sócio / Admin' : 'Secretária'}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400 flex items-center gap-2">
+                          <span>{u.email}</span>
+                          <span>•</span>
+                          <span>
+                            Menus:{' '}
+                            {isUserSocio
+                              ? 'Todos os menus liberados'
+                              : 'Painel, Vendas e Fluxo de Caixa'}
+                          </span>
+                        </p>
+                      </div>
+
+                      {isSocio && (
+                        <div className="flex items-center gap-1 self-end sm:self-center">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleOpenEditUser(u)}
+                            className="h-8 text-xs text-slate-300 hover:text-white hover:bg-[#1A2234] gap-1"
+                          >
+                            <Edit2 className="w-3.5 h-3.5" />
+                            <span>Editar</span>
+                          </Button>
+                          {u.id !== user?.id && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDeleteUser(u)}
+                              className="h-8 text-xs text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+
+                {systemUsers.length === 0 && (
+                  <div className="p-8 text-center text-xs text-slate-400">
+                    Carregando usuários do sistema...
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+        </TabsContent>
 
-          <form onSubmit={handleSaveConfig} className="space-y-4">
-            <div className="space-y-3">
+        {/* ============================================================== */}
+        {/* ABA 2: CADASTROS DE CORRETORES (APENAS NOMES, SEM LOGIN) */}
+        {/* ============================================================== */}
+        <TabsContent value="corretores" className="space-y-4 pt-2">
+          <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#232A3B]">
               <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-slate-300">Parte da Imobiliária (%):</span>
-                  <span className="text-red-400 font-bold">{pctImob}%</span>
-                </div>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={pctImob}
-                  onChange={(e) => setPctImob(Number(e.target.value))}
-                  className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-slate-300">Parte do Corretor Fechador (%):</span>
-                  <span className="text-blue-400 font-bold">{pctCorr}%</span>
-                </div>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={pctCorr}
-                  onChange={(e) => setPctCorr(Number(e.target.value))}
-                  className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-slate-300">Parte do Captador (%):</span>
-                  <span className="text-amber-400 font-bold">{pctCapt}%</span>
-                </div>
-                <Input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={pctCapt}
-                  onChange={(e) => setPctCapt(Number(e.target.value))}
-                  className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
-                />
-              </div>
-
-              <div>
-                <div className="flex justify-between text-xs font-semibold mb-1">
-                  <span className="text-slate-300">% Padrão de Comissão por Venda:</span>
-                  <span className="text-white font-bold">{pctPadrao}%</span>
-                </div>
-                <Input
-                  type="number"
-                  step="0.5"
-                  value={pctPadrao}
-                  onChange={(e) => setPctPadrao(Number(e.target.value))}
-                  className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
-                />
-              </div>
-            </div>
-
-            {/* Total Validation Indicator */}
-            <div
-              className={`p-3 rounded-xl border flex items-center justify-between text-xs font-semibold ${
-                pctImob + pctCorr + pctCapt === 100
-                  ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
-                  : 'bg-red-500/10 border-red-500/30 text-red-400'
-              }`}
-            >
-              <span>Total da Distribuição:</span>
-              <span className="text-sm font-bold">{pctImob + pctCorr + pctCapt}%</span>
-            </div>
-
-            <Button
-              type="submit"
-              disabled={savingConfig}
-              className="w-full bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-9 rounded-lg"
-            >
-              {savingConfig ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                'Salvar Regras de Comissão'
-              )}
-            </Button>
-          </form>
-        </div>
-
-        {/* Bloco 2: Gestão de Corretores */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between">
-          <div>
-            <div className="flex items-center justify-between pb-4 border-b border-[#232A3B] mb-4">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
-                  <Users className="w-4 h-4" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-white text-base">Equipe de Corretores</h3>
-                  <p className="text-xs text-slate-400">{corretores.length} profissionais</p>
-                </div>
+                <h3 className="font-bold text-white text-base flex items-center gap-2">
+                  <Users className="w-5 h-5 text-emerald-400" />
+                  Cadastros de Corretores & Captadores
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Os corretores <strong>não possuem login</strong> no sistema. Estes nomes servem
+                  exclusivamente para atribuição de vendas e cálculo de comissões/rankings.
+                </p>
               </div>
 
               <Button
-                size="sm"
                 onClick={handleOpenCreateCorretor}
-                className="bg-[#0B0E14] border border-[#232A3B] hover:bg-[#1A2234] text-slate-200 text-xs h-8 px-2.5 gap-1.5"
+                className="bg-[#0B0E14] border border-[#232A3B] hover:bg-[#1A2234] text-slate-200 text-xs h-9 px-3 gap-1.5"
               >
-                <Plus className="w-3.5 h-3.5 text-red-400" />
-                <span>Adicionar</span>
+                <Plus className="w-4 h-4 text-emerald-400" />
+                <span>Adicionar Corretor</span>
               </Button>
             </div>
 
-            <div className="space-y-2.5 max-h-[340px] overflow-y-auto pr-1">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
               {corretores.map((c) => (
                 <div
                   key={c.id}
-                  className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] flex items-center justify-between text-xs"
+                  className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] flex flex-col justify-between space-y-3"
                 >
-                  <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-slate-100">{c.nome}</span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-100 text-sm truncate">{c.nome}</span>
                       {c.ativo ? (
                         <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-400">
                           Ativo
@@ -334,19 +516,24 @@ export default function ConfiguracoesPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-[11px] text-slate-400">
-                      {c.email} {c.creci ? `• CRECI ${c.creci}` : ''}
-                    </p>
+                    <p className="text-[11px] text-slate-400 truncate">{c.email}</p>
+                    {(c.telefone || c.creci) && (
+                      <p className="text-[11px] text-slate-500">
+                        {c.telefone && <span>Tel: {c.telefone} </span>}
+                        {c.creci && <span>• CRECI: {c.creci}</span>}
+                      </p>
+                    )}
                   </div>
 
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center justify-end gap-1 pt-2 border-t border-[#232A3B]/50">
                     <Button
                       variant="ghost"
-                      size="icon"
+                      size="sm"
                       onClick={() => handleOpenEditCorretor(c)}
-                      className="h-7 w-7 text-slate-400 hover:text-white"
+                      className="h-7 text-xs text-slate-400 hover:text-white"
                     >
-                      <Edit2 className="w-3.5 h-3.5" />
+                      <Edit2 className="w-3.5 h-3.5 mr-1" />
+                      Editar
                     </Button>
                     <Button
                       variant="ghost"
@@ -361,14 +548,317 @@ export default function ConfiguracoesPage() {
               ))}
 
               {corretores.length === 0 && (
-                <div className="py-8 text-center text-xs text-slate-500">
-                  Nenhum corretor cadastrado ainda.
+                <div className="col-span-full py-12 text-center text-xs text-slate-500">
+                  Nenhum corretor cadastrado ainda. Clique em "Adicionar Corretor" para começar.
                 </div>
               )}
             </div>
           </div>
-        </div>
-      </div>
+        </TabsContent>
+
+        {/* ============================================================== */}
+        {/* ABA 3: REGRAS DE COMISSÃO */}
+        {/* ============================================================== */}
+        {isSocio && (
+          <TabsContent value="comissoes" className="space-y-4 pt-2">
+            <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg max-w-2xl space-y-4">
+              <div className="flex items-center gap-2.5 pb-4 border-b border-[#232A3B]">
+                <div className="w-8 h-8 rounded-lg bg-[#E63946]/15 flex items-center justify-center text-[#E63946]">
+                  <Percent className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-white text-base">Divisão Padrão de Comissões</h3>
+                  <p className="text-xs text-slate-400">
+                    Distribuição automática aplicada ao cadastrar vendas
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleSaveConfig} className="space-y-4">
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span className="text-slate-300">Parte da Imobiliária (%):</span>
+                      <span className="text-red-400 font-bold">{pctImob}%</span>
+                    </div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={pctImob}
+                      onChange={(e) => setPctImob(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span className="text-slate-300">Parte do Corretor Fechador (%):</span>
+                      <span className="text-blue-400 font-bold">{pctCorr}%</span>
+                    </div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={pctCorr}
+                      onChange={(e) => setPctCorr(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span className="text-slate-300">Parte do Captador (%):</span>
+                      <span className="text-amber-400 font-bold">{pctCapt}%</span>
+                    </div>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={pctCapt}
+                      onChange={(e) => setPctCapt(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                    />
+                  </div>
+
+                  <div>
+                    <div className="flex justify-between text-xs font-semibold mb-1">
+                      <span className="text-slate-300">% Padrão de Comissão por Venda:</span>
+                      <span className="text-white font-bold">{pctPadrao}%</span>
+                    </div>
+                    <Input
+                      type="number"
+                      step="0.5"
+                      value={pctPadrao}
+                      onChange={(e) => setPctPadrao(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                    />
+                  </div>
+                </div>
+
+                <div
+                  className={`p-3 rounded-xl border flex items-center justify-between text-xs font-semibold ${
+                    pctImob + pctCorr + pctCapt === 100
+                      ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'
+                      : 'bg-red-500/10 border-red-500/30 text-red-400'
+                  }`}
+                >
+                  <span>Total da Distribuição:</span>
+                  <span className="text-sm font-bold">{pctImob + pctCorr + pctCapt}%</span>
+                </div>
+
+                <Button
+                  type="submit"
+                  disabled={savingConfig}
+                  className="w-full bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-9 rounded-lg"
+                >
+                  {savingConfig ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    'Salvar Regras de Comissão'
+                  )}
+                </Button>
+              </form>
+            </div>
+          </TabsContent>
+        )}
+
+        {/* ============================================================== */}
+        {/* ABA 4: APARÊNCIA & ALERTAS SONOROS */}
+        {/* ============================================================== */}
+        <TabsContent value="preferencias" className="space-y-4 pt-2">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            {/* Tema */}
+            <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-[#232A3B]">
+                <Palette className="w-5 h-5 text-[#E63946]" />
+                <div>
+                  <h3 className="font-bold text-white text-base">Aparência do Sistema</h3>
+                  <p className="text-xs text-slate-400">
+                    Escolha entre o tema Escuro moderno ou Claro
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setTheme('dark')}
+                  className={`p-4 rounded-xl border flex flex-col items-center gap-2 text-center transition-all ${
+                    theme === 'dark'
+                      ? 'border-[#E63946] bg-[#E63946]/10 text-white shadow-lg'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Moon className="w-6 h-6 text-amber-400" />
+                  <span className="text-xs font-bold">Tema Escuro</span>
+                  <span className="text-[10px] text-slate-400">Destaque vermelho ImobGestor</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setTheme('light')}
+                  className={`p-4 rounded-xl border flex flex-col items-center gap-2 text-center transition-all ${
+                    theme === 'light'
+                      ? 'border-[#E63946] bg-[#E63946]/10 text-white shadow-lg'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <Sun className="w-6 h-6 text-amber-400" />
+                  <span className="text-xs font-bold">Tema Claro</span>
+                  <span className="text-[10px] text-slate-400">Fundo claro com boa leitura</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Alertas Sonoros de Contas Vencidas */}
+            <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg space-y-4">
+              <div className="flex items-center gap-2.5 pb-3 border-b border-[#232A3B]">
+                <Bell className="w-5 h-5 text-[#E63946]" />
+                <div>
+                  <h3 className="font-bold text-white text-base">Alerta de Contas Vencidas</h3>
+                  <p className="text-xs text-slate-400">
+                    Aviso sonoro para despesas que passaram do vencimento
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-[#0B0E14] border border-[#232A3B] flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    {soundEnabled ? (
+                      <Volume2 className="w-4 h-4 text-emerald-400" />
+                    ) : (
+                      <VolumeX className="w-4 h-4 text-slate-500" />
+                    )}
+                    <span className="text-xs font-bold text-white">Som de Alerta</span>
+                  </div>
+                  <p className="text-[11px] text-slate-400">
+                    {soundEnabled
+                      ? 'Toca um aviso sonoro ao identificar contas vencidas pendentes.'
+                      : 'Alerta sonoro silenciado. Notificações visuais continuam ativas.'}
+                  </p>
+                </div>
+
+                <Switch checked={soundEnabled} onCheckedChange={setSoundEnabled} />
+              </div>
+            </div>
+          </div>
+        </TabsContent>
+      </Tabs>
+
+      {/* Modal Criar / Editar Usuário do Sistema */}
+      <Dialog open={isUserModalOpen} onOpenChange={setIsUserModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <Shield className="w-5 h-5 text-[#E63946]" />
+              {editingUser ? 'Editar Usuário & Perfil' : 'Criar Novo Usuário'}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-400">
+              Defina as credenciais de login e as permissões de acesso ao sistema.
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveUser} className="space-y-4 pt-2">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Nome do Usuário *
+              </label>
+              <Input
+                type="text"
+                placeholder="Ex: Ana Paula ou Carlos Gestor"
+                value={uName}
+                onChange={(e) => setUName(e.target.value)}
+                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                E-mail de Login *
+              </label>
+              <Input
+                type="email"
+                placeholder="usuario@imobiliaria.com"
+                value={uEmail}
+                onChange={(e) => setUEmail(e.target.value)}
+                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                {editingUser
+                  ? 'Nova Senha (deixe em branco para manter)'
+                  : 'Senha de Acesso (mínimo 8 caracteres) *'}
+              </label>
+              <Input
+                type="password"
+                placeholder="••••••••"
+                value={uPassword}
+                onChange={(e) => setUPassword(e.target.value)}
+                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Tipo de Perfil / Permissões *
+              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <button
+                  type="button"
+                  onClick={() => setUPerfil('socio')}
+                  className={`p-3 rounded-xl border flex flex-col items-start text-left gap-1 transition-all ${
+                    uPerfil === 'socio'
+                      ? 'border-[#E63946] bg-[#E63946]/15 text-white'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-xs font-bold text-red-400">Sócio (Poder Total)</span>
+                  <span className="text-[10px] text-slate-400">
+                    Acesso a todos os menus e configurações
+                  </span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setUPerfil('secretaria')}
+                  className={`p-3 rounded-xl border flex flex-col items-start text-left gap-1 transition-all ${
+                    uPerfil === 'secretaria'
+                      ? 'border-amber-500 bg-amber-500/15 text-white'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-xs font-bold text-amber-400">Secretária</span>
+                  <span className="text-[10px] text-slate-400">
+                    Lançar vendas e despesas/receitas
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsUserModalOpen(false)}
+                className="bg-transparent border-[#232A3B] text-slate-300"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingUser}
+                className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold"
+              >
+                {savingUser ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Usuário'}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
 
       {/* Modal Adicionar / Editar Corretor */}
       <Dialog open={isCorretorModalOpen} onOpenChange={setIsCorretorModalOpen}>
@@ -379,7 +869,7 @@ export default function ConfiguracoesPage() {
               {editingCorretor ? 'Editar Corretor' : 'Cadastrar Novo Corretor'}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-400">
-              Dados do profissional para vinculação em vendas e repasses.
+              Dados do profissional para vinculação em vendas e repasses (sem login).
             </DialogDescription>
           </DialogHeader>
 

@@ -1,4 +1,4 @@
-export type UserProfile = 'socio' | 'corretor' | 'administrador'
+export type UserProfile = 'socio' | 'secretaria' | 'corretor' | 'administrador'
 
 export interface User {
   id: string
@@ -49,6 +49,7 @@ export interface Venda {
 
 export type ComissaoParte = 'imobiliaria' | 'corretor' | 'captador'
 export type ComissaoStatus = 'pendente' | 'recebida' | 'paga'
+export type ComissaoTipo = 'venda' | 'captacao'
 
 export interface Comissao {
   id: string
@@ -58,6 +59,7 @@ export interface Comissao {
   percentual: number
   valor: number
   status: ComissaoStatus
+  tipo?: ComissaoTipo
   data_recebimento?: string
   user: string
   created: string
@@ -78,6 +80,7 @@ export interface MetaVGV {
   data_inicio: string
   data_fim: string
   valor_meta: number
+  corretor?: string
   user: string
   created: string
   updated: string
@@ -105,6 +108,7 @@ export interface Transacao {
   data_competencia?: string
   data_vencimento?: string
   consolidado?: boolean
+  status?: string
   venda?: string
   comissao?: string
   user: string
@@ -171,13 +175,19 @@ export interface Fechamento {
   despesas: number
   impostos: number
   resultado_liquido: number
-  snapshot?: any
-  data_fechamento: string
-  user: string
+  snapshot: any
+  status?: 'aberto' | 'fechado'
+  total_vgv?: number
+  total_comissoes?: number
+  total_entradas?: number
+  total_saidas?: number
+  lucro_liquido?: number
+  data_fechamento?: string
+  fechado_em: string
+  fechado_por: string
   created: string
   updated: string
 }
-
 export interface Configuracoes {
   id: string
   user: string
@@ -185,6 +195,15 @@ export interface Configuracoes {
   percentual_corretor: number
   percentual_captador: number
   percentual_comissao_padrao: number
+  created: string
+  updated: string
+}
+
+export interface SystemUser {
+  id: string
+  email: string
+  name: string
+  perfil: UserProfile
   created: string
   updated: string
 }

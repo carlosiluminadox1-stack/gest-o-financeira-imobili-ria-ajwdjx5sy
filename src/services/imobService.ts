@@ -9,7 +9,62 @@ import {
   NotaFiscal,
   Fechamento,
   Configuracoes,
+  SystemUser,
 } from '@/types'
+
+// User Management Service
+export const UserService = {
+  async getAll(): Promise<SystemUser[]> {
+    return await pb.collection('users').getFullList<SystemUser>({
+      sort: '-created',
+    })
+  },
+  async create(data: {
+    name: string
+    email: string
+    password: string
+    perfil: 'socio' | 'secretaria'
+  }): Promise<SystemUser> {
+    const user = await pb.collection('users').create<SystemUser>({
+      name: data.name,
+      email: data.email,
+      password: data.password,
+      passwordConfirm: data.password,
+      perfil: data.perfil,
+    })
+
+    // Init default settings if socio
+    try {
+      await pb.collection('configuracoes').create({
+        user: user.id,
+        percentual_imobiliaria: 50,
+        percentual_corretor: 40,
+        percentual_captador: 10,
+        percentual_comissao_padrao: 6,
+      })
+    } catch {
+      /* intentionally ignored */
+    }
+
+    return user
+  },
+  async update(
+    id: string,
+    data: { name?: string; email?: string; perfil?: 'socio' | 'secretaria'; password?: string },
+  ): Promise<SystemUser> {
+    const payload: any = { ...data }
+    if (data.password) {
+      payload.password = data.password
+      payload.passwordConfirm = data.password
+    } else {
+      delete payload.password
+    }
+    return await pb.collection('users').update<SystemUser>(id, payload)
+  },
+  async delete(id: string): Promise<boolean> {
+    return await pb.collection('users').delete(id)
+  },
+}
 
 // Corretor Service
 export const CorretorService = {
@@ -483,9 +538,31 @@ export const ComissaoService = {
       user: userId,
     })
   },
+  async markAsPaid(comissaoId: string): Promise<void> {
+    const userId = pb.authStore.record?.id
+    if (!userId) throw new Error('Usuário não autenticado')
+    return this.registrarPagamento(comissaoId, userId)
+  },
 }
 
 // Metas VGV Service
+export const MetaVGVService = {
+  async getAll(): Promise<MetaVGV[]> {
+    return await pb.collection('metas_vgv').getFullList<MetaVGV>({
+      sort: '-data_inicio',
+    })
+  },
+  async create(data: Partial<MetaVGV>): Promise<MetaVGV> {
+    return await pb.collection('metas_vgv').create<MetaVGV>(data)
+  },
+  async update(id: string, data: Partial<MetaVGV>): Promise<MetaVGV> {
+    return await pb.collection('metas_vgv').update<MetaVGV>(id, data)
+  },
+  async delete(id: string): Promise<boolean> {
+    return await pb.collection('metas_vgv').delete(id)
+  },
+}
+
 export const MetaService = {
   async getAll(): Promise<MetaVGV[]> {
     return await pb.collection('metas_vgv').getFullList<MetaVGV>({
@@ -627,43 +704,66 @@ export const FechamentoService = {
       return null
     }
   },
+  async getByMesAno(mes: number, ano: number): Promise<Fechamento | null> {
+    return this.getByMonthYear(mes, ano)
+  },
   async fecharMes(params: {
     mes: number
     ano: number
-    receita_bruta: number
-    despesas: number
-    impostos: number
-    resultado_liquido: number
-    snapshot: any
-    userId: string
+    receita_bruta?: number
+    despesas?: number
+    impostos?: number
+    resultado_liquido?: number
+    total_vgv?: number
+    total_comissoes?: number
+    total_entradas?: number
+    total_saidas?: number
+    lucro_liquido?: number
+    snapshot?: any
+    userId?: string
+    fechado_por?: string
   }): Promise<Fechamento> {
     const now = new Date().toISOString()
+    const userId = params.userId || params.fechado_por || pb.authStore.record?.id || ''
     const record = await pb.collection('fechamentos').create<Fechamento>({
       mes: params.mes,
       ano: params.ano,
-      receita_bruta: params.receita_bruta,
-      despesas: params.despesas,
-      impostos: params.impostos,
-      resultado_liquido: params.resultado_liquido,
-      snapshot: params.snapshot,
+      receita_bruta: params.receita_bruta ?? params.total_entradas ?? 0,
+      despesas: params.despesas ?? params.total_saidas ?? 0,
+      impostos: params.impostos ?? 0,
+      resultado_liquido: params.resultado_liquido ?? params.lucro_liquido ?? 0,
+      snapshot: params.snapshot ?? {},
+      status: 'fechado',
+      total_vgv: params.total_vgv,
+      total_comissoes: params.total_comissoes,
+      total_entradas: params.total_entradas,
+      total_saidas: params.total_saidas,
+      lucro_liquido: params.lucro_liquido,
       data_fechamento: now,
-      user: params.userId,
+      fechado_em: now,
+      fechado_por: userId,
+      user: userId,
     })
 
     // Mark transactions in this month as consolidado
-    const startIso = new Date(Date.UTC(params.ano, params.mes - 1, 1)).toISOString().split('T')[0]
-    const endIso = new Date(Date.UTC(params.ano, params.mes, 0, 23, 59, 59))
-      .toISOString()
-      .split('T')[0]
+    try {
+      const startIso = new Date(Date.UTC(params.ano, params.mes - 1, 1)).toISOString().split('T')[0]
+      const endIso = new Date(Date.UTC(params.ano, params.mes, 0, 23, 59, 59))
+        .toISOString()
+        .split('T')[0]
 
-    const transacoes = await pb.collection('transacoes').getFullList({
-      filter: `data >= "${startIso} 00:00:00.000Z" && data <= "${endIso} 23:59:59.999Z"`,
-    })
+      const transacoes = await pb.collection('transacoes').getFullList({
+        filter: `data >= "${startIso} 00:00:00.000Z" && data <= "${endIso} 23:59:59.999Z"`,
+      })
 
-    for (const t of transacoes) {
-      await pb.collection('transacoes').update(t.id, { consolidado: true })
-    }
+      for (const t of transacoes) {
+        await pb.collection('transacoes').update(t.id, { consolidado: true })
+      }
+    } catch { /* intentionally ignored */ }
 
     return record
+  },
+  async reabrirMes(id: string): Promise<boolean> {
+    return await pb.collection('fechamentos').delete(id)
   },
 }

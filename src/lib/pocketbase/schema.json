@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-27T18:54:13.116Z",
+  "generatedAt": "2026-08-28T14:39:01.866Z",
   "collections": [
     {
       "name": "users",
@@ -43,7 +43,7 @@
           "type": "select",
           "required": false,
           "system": false,
-          "selectValues": ["socio", "corretor", "administrador"]
+          "selectValues": ["socio", "secretaria", "corretor", "administrador"]
         }
       ],
       "indexes": [

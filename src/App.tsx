@@ -3,6 +3,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { Toaster } from 'sonner'
 import { AuthProvider } from '@/context/AuthContext'
 import { PeriodoProvider } from '@/context/PeriodoContext'
+import { ThemeProvider } from '@/context/ThemeContext'
+import { ContasAlertProvider } from '@/context/ContasAlertContext'
 import { ProtectedRoute } from '@/components/ProtectedRoute'
 import Layout from '@/components/Layout'
 
@@ -22,46 +24,57 @@ import NotFound from '@/pages/NotFound'
 export default function App() {
   return (
     <BrowserRouter>
-      <AuthProvider>
-        <PeriodoProvider>
-          <Routes>
-            {/* Rota pública de login */}
-            <Route path="/login" element={<Login />} />
+      <ThemeProvider>
+        <AuthProvider>
+          <PeriodoProvider>
+            <ContasAlertProvider>
+              <Routes>
+                {/* Rota pública de login */}
+                <Route path="/login" element={<Login />} />
 
-            {/* Rotas protegidas dentro do Layout */}
-            <Route element={<ProtectedRoute />}>
-              <Route element={<Layout />}>
-                <Route path="/" element={<Navigate to="/painel" replace />} />
-                <Route path="/painel" element={<Dashboard />} />
-                <Route path="/vendas" element={<Vendas />} />
-                <Route path="/comissoes" element={<Comissoes />} />
-                <Route path="/metas" element={<MetasVGV />} />
-                <Route path="/fluxo" element={<FluxoCaixa />} />
-                <Route path="/ranking" element={<Ranking />} />
-                <Route path="/notas" element={<NotasFiscais />} />
-                <Route path="/fechamento" element={<FechamentoPage />} />
-                <Route path="/configuracoes" element={<ConfiguracoesPage />} />
-              </Route>
-            </Route>
+                {/* Rotas protegidas dentro do Layout */}
+                <Route element={<ProtectedRoute />}>
+                  <Route element={<Layout />}>
+                    <Route path="/" element={<Navigate to="/painel" replace />} />
+                    <Route path="/painel" element={<Dashboard />} />
+                    <Route path="/vendas" element={<Vendas />} />
+                    <Route path="/fluxo" element={<FluxoCaixa />} />
 
-            {/* 404 */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
+                    {/* Rotas exclusivas de Sócio */}
+                    <Route element={<ProtectedRoute requiredPath="/comissoes" />}>
+                      <Route path="/comissoes" element={<Comissoes />} />
+                    </Route>
+                    <Route element={<ProtectedRoute requiredPath="/metas" />}>
+                      <Route path="/metas" element={<MetasVGV />} />
+                    </Route>
+                    <Route element={<ProtectedRoute requiredPath="/ranking" />}>
+                      <Route path="/ranking" element={<Ranking />} />
+                    </Route>
+                    <Route element={<ProtectedRoute requiredPath="/notas" />}>
+                      <Route path="/notas" element={<NotasFiscais />} />
+                    </Route>
+                    <Route element={<ProtectedRoute requiredPath="/fechamento" />}>
+                      <Route path="/fechamento" element={<FechamentoPage />} />
+                    </Route>
+                    <Route path="/configuracoes" element={<ConfiguracoesPage />} />
+                  </Route>
+                </Route>
 
-          {/* Global Toast Notifications (Top Right) */}
-          <Toaster
-            position="top-right"
-            theme="dark"
-            toastOptions={{
-              style: {
-                background: '#121722',
-                border: '1px solid #232A3B',
-                color: '#F8FAFC',
-              },
-            }}
-          />
-        </PeriodoProvider>
-      </AuthProvider>
+                {/* 404 */}
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+
+              {/* Global Toast Notifications (Top Right) */}
+              <Toaster
+                position="top-right"
+                toastOptions={{
+                  className: 'toast-custom',
+                }}
+              />
+            </ContasAlertProvider>
+          </PeriodoProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </BrowserRouter>
   )
 }

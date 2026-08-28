@@ -3,8 +3,12 @@ import { Navigate, Outlet } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { Loader2 } from 'lucide-react'
 
-export const ProtectedRoute: React.FC = () => {
-  const { user, isLoading } = useAuth()
+interface ProtectedRouteProps {
+  requiredPath?: string
+}
+
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ requiredPath }) => {
+  const { user, isLoading, hasMenuAccess } = useAuth()
 
   if (isLoading) {
     return (
@@ -17,6 +21,10 @@ export const ProtectedRoute: React.FC = () => {
 
   if (!user) {
     return <Navigate to="/login" replace />
+  }
+
+  if (requiredPath && !hasMenuAccess(requiredPath)) {
+    return <Navigate to="/painel" replace />
   }
 
   return <Outlet />

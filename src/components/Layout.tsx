@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -14,11 +14,19 @@ import {
   Building2,
   Menu,
   X,
-  UserCheck,
-  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Sun,
+  Moon,
+  Volume2,
+  VolumeX,
+  Bell,
+  AlertCircle,
 } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
+import { useTheme } from '@/context/ThemeContext'
+import { useContasAlert } from '@/context/ContasAlertContext'
 import { PeriodoGlobal } from '@/types'
 import { PeriodoSelector } from '@/components/PeriodoSelector'
 import {
@@ -31,15 +39,15 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { Button } from '@/components/ui/button'
 
-const NAV_ITEMS = [
-  { path: '/painel', label: 'Painel', icon: LayoutDashboard },
-  { path: '/vendas', label: 'Vendas', icon: TrendingUp },
-  { path: '/comissoes', label: 'Comissões', icon: BadgePercent },
-  { path: '/metas', label: 'Metas VGV', icon: Target },
-  { path: '/fluxo', label: 'Fluxo de Caixa', icon: ArrowLeftRight },
-  { path: '/ranking', label: 'Ranking', icon: Trophy },
-  { path: '/notas', label: 'Notas Fiscais', icon: FileText },
-  { path: '/fechamento', label: 'Fechamento', icon: Lock },
+const ALL_NAV_ITEMS = [
+  { path: '/painel', label: 'Painel', icon: LayoutDashboard, publicForSecretaria: true },
+  { path: '/vendas', label: 'Vendas', icon: TrendingUp, publicForSecretaria: true },
+  { path: '/comissoes', label: 'Comissões', icon: BadgePercent, publicForSecretaria: false },
+  { path: '/metas', label: 'Metas VGV', icon: Target, publicForSecretaria: false },
+  { path: '/fluxo', label: 'Fluxo de Caixa', icon: ArrowLeftRight, publicForSecretaria: true },
+  { path: '/ranking', label: 'Ranking', icon: Trophy, publicForSecretaria: false },
+  { path: '/notas', label: 'Notas Fiscais', icon: FileText, publicForSecretaria: false },
+  { path: '/fechamento', label: 'Fechamento', icon: Lock, publicForSecretaria: false },
 ]
 
 const PAGE_TITLES: Record<string, string> = {
@@ -55,13 +63,29 @@ const PAGE_TITLES: Record<string, string> = {
 }
 
 export default function Layout() {
-  const { user, logout } = useAuth()
-  const { periodo, setPeriodo } = usePeriodo()
+  const { user, logout, isSocio, isSecretaria, hasMenuAccess } = useAuth()
+  const { periodo } = usePeriodo()
+  const { theme, toggleTheme } = useTheme()
+  const { overdueCount, soundEnabled, toggleSound } = useContasAlert()
   const navigate = useNavigate()
   const location = useLocation()
+
+  // Sidebar expand/collapse state (desktop)
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    const saved = localStorage.getItem('imobgestor_sidebar_collapsed')
+    return saved === 'true'
+  })
+
+  useEffect(() => {
+    localStorage.setItem('imobgestor_sidebar_collapsed', String(isSidebarCollapsed))
+  }, [isSidebarCollapsed])
+
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
 
   const currentPageTitle = PAGE_TITLES[location.pathname] || 'ImobGestor'
+
+  // Filtrar itens de navegação baseado no perfil do usuário
+  const navItems = ALL_NAV_ITEMS.filter((item) => hasMenuAccess(item.path))
 
   const handleLogout = () => {
     logout()
@@ -86,33 +110,69 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen bg-[#0B0E14] text-slate-100 flex">
-      {/* Desktop Sidebar (fixed 260px) */}
-      <aside className="hidden md:flex flex-col w-[260px] fixed top-0 bottom-0 left-0 bg-[#0E121B] border-r border-[#232A3B] z-30 select-none">
+      {/* Desktop Sidebar (recolhível: 260px ou 76px) */}
+      <aside
+        className={`hidden md:flex flex-col fixed top-0 bottom-0 left-0 bg-[#0E121B] border-r border-[#232A3B] z-30 select-none transition-all duration-300 ${
+          isSidebarCollapsed ? 'w-[76px]' : 'w-[260px]'
+        }`}
+      >
         {/* Brand Header */}
-        <div className="p-5 border-b border-[#232A3B] flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#E63946] to-[#F97316] flex items-center justify-center shadow-lg shadow-[#E63946]/20">
-            <Building2 className="w-5 h-5 text-white" />
+        <div
+          className={`p-4 border-b border-[#232A3B] flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-between'}`}
+        >
+          <div className="flex items-center gap-3 overflow-hidden">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#E63946] to-[#F97316] flex items-center justify-center shrink-0 shadow-lg shadow-[#E63946]/20">
+              <Building2 className="w-5 h-5 text-white" />
+            </div>
+            {!isSidebarCollapsed && (
+              <div className="animate-in fade-in duration-200">
+                <h1 className="font-bold text-lg text-white tracking-tight leading-none flex items-center gap-1.5">
+                  Imob<span className="text-[#E63946]">Gestor</span>
+                </h1>
+                <p className="text-[11px] text-slate-400 mt-1 font-medium tracking-wide">
+                  Gestão Financeira
+                </p>
+              </div>
+            )}
           </div>
-          <div>
-            <h1 className="font-bold text-lg text-white tracking-tight leading-none flex items-center gap-1.5">
-              Imob<span className="text-[#E63946]">Gestor</span>
-            </h1>
-            <p className="text-[11px] text-slate-400 mt-1 font-medium tracking-wide">
-              Gestão Financeira
-            </p>
-          </div>
+
+          {!isSidebarCollapsed && (
+            <button
+              onClick={() => setIsSidebarCollapsed(true)}
+              title="Recolher menu"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1A1F2E] transition-colors"
+            >
+              <ChevronLeft className="w-4 h-4" />
+            </button>
+          )}
         </div>
 
+        {/* Se recolhido, botão para expandir no topo */}
+        {isSidebarCollapsed && (
+          <div className="py-2 flex justify-center border-b border-[#232A3B]">
+            <button
+              onClick={() => setIsSidebarCollapsed(false)}
+              title="Expandir menu"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-[#1A1F2E] transition-colors"
+            >
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        )}
+
         {/* Menu Navigation */}
-        <nav className="flex-1 py-4 px-3 space-y-1 overflow-y-auto">
-          {NAV_ITEMS.map((item) => {
+        <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+          {navItems.map((item) => {
             const Icon = item.icon
             const isActive = location.pathname === item.path
             return (
               <NavLink
                 key={item.path}
                 to={item.path}
-                className={`relative flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all duration-150 group ${
+                title={isSidebarCollapsed ? item.label : undefined}
+                className={`relative flex items-center rounded-lg text-sm font-medium transition-all duration-150 group ${
+                  isSidebarCollapsed ? 'justify-center px-0 py-3' : 'gap-3 px-3.5 py-2.5'
+                } ${
                   isActive
                     ? 'bg-[#E63946]/15 text-red-400 shadow-sm'
                     : 'text-slate-400 hover:text-slate-200 hover:bg-[#1A1F2E]'
@@ -122,48 +182,107 @@ export default function Layout() {
                   <span className="absolute left-0 top-1/2 -translate-y-1/2 w-[3px] h-6 bg-[#E63946] rounded-r-full" />
                 )}
                 <Icon
-                  className={`w-4 h-4 transition-transform group-hover:scale-110 ${
+                  className={`w-4 h-4 transition-transform group-hover:scale-110 shrink-0 ${
                     isActive ? 'text-[#E63946]' : 'text-slate-400 group-hover:text-slate-200'
                   }`}
                 />
-                <span>{item.label}</span>
+                {!isSidebarCollapsed && <span className="truncate">{item.label}</span>}
               </NavLink>
             )
           })}
         </nav>
 
         {/* Footer Navigation */}
-        <div className="p-3 border-t border-[#232A3B] space-y-1">
+        <div className="p-2 border-t border-[#232A3B] space-y-1">
           <NavLink
             to="/configuracoes"
-            className={`flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all ${
+            title={isSidebarCollapsed ? 'Configurações' : undefined}
+            className={`flex items-center rounded-lg text-sm font-medium transition-all ${
+              isSidebarCollapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3.5 py-2.5'
+            } ${
               location.pathname === '/configuracoes'
                 ? 'bg-[#E63946]/15 text-red-400'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-[#1A1F2E]'
             }`}
           >
-            <Settings className="w-4 h-4" />
-            <span>Configurações</span>
+            <Settings className="w-4 h-4 shrink-0" />
+            {!isSidebarCollapsed && <span>Configurações</span>}
           </NavLink>
           <button
             onClick={handleLogout}
-            className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all text-left"
+            title={isSidebarCollapsed ? 'Sair' : undefined}
+            className={`w-full flex items-center rounded-lg text-sm font-medium text-slate-400 hover:text-red-400 hover:bg-red-500/10 transition-all text-left ${
+              isSidebarCollapsed ? 'justify-center px-0 py-2.5' : 'gap-3 px-3.5 py-2.5'
+            }`}
           >
-            <LogOut className="w-4 h-4" />
-            <span>Sair</span>
+            <LogOut className="w-4 h-4 shrink-0" />
+            {!isSidebarCollapsed && <span>Sair</span>}
           </button>
         </div>
       </aside>
 
       {/* Main Container */}
-      <div className="flex-1 flex flex-col md:ml-[260px] min-h-screen bg-[#0B0E14]">
+      <div
+        className={`flex-1 flex flex-col min-h-screen bg-[#0B0E14] transition-all duration-300 ${
+          isSidebarCollapsed ? 'md:ml-[76px]' : 'md:ml-[260px]'
+        }`}
+      >
         {/* Desktop Header (64px) */}
         <header className="hidden md:flex h-16 sticky top-0 z-20 bg-[#0B0E14]/90 backdrop-blur-md border-b border-[#232A3B] px-6 items-center justify-between">
-          <div>
+          <div className="flex items-center gap-3">
             <h2 className="text-lg font-bold text-white tracking-tight">{currentPageTitle}</h2>
+            {isSecretaria && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-bold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+                Modo Secretaria
+              </span>
+            )}
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-3">
+            {/* Alerta de Contas Vencidas */}
+            {overdueCount > 0 && (
+              <NavLink
+                to="/fluxo"
+                title={`${overdueCount} contas vencidas pendentes`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-red-500/15 border border-red-500/30 text-red-400 text-xs font-bold animate-pulse hover:bg-red-500/25 transition-all"
+              >
+                <AlertCircle className="w-4 h-4 text-[#E63946]" />
+                <span>
+                  {overdueCount} {overdueCount === 1 ? 'vencida' : 'vencidas'}
+                </span>
+              </NavLink>
+            )}
+
+            {/* Controle de Som de Alerta */}
+            <button
+              onClick={toggleSound}
+              title={
+                soundEnabled
+                  ? 'Alerta sonoro ativado (clique para silenciar)'
+                  : 'Alerta sonoro desativado (clique para ativar)'
+              }
+              className={`p-2 rounded-xl border transition-all ${
+                soundEnabled
+                  ? 'bg-[#121722] border-[#232A3B] text-emerald-400 hover:bg-[#1A2234]'
+                  : 'bg-[#121722] border-[#232A3B] text-slate-500 hover:text-slate-300'
+              }`}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
+            {/* Alternador de Tema Escuro / Claro */}
+            <button
+              onClick={toggleTheme}
+              title={theme === 'dark' ? 'Mudar para Tema Claro' : 'Mudar para Tema Escuro'}
+              className="p-2 rounded-xl bg-[#121722] border border-[#232A3B] text-slate-300 hover:text-white hover:bg-[#1A2234] transition-all"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-700" />
+              )}
+            </button>
+
             {/* Seletor Global de Período */}
             <PeriodoSelector variant="desktop" />
 
@@ -183,11 +302,17 @@ export default function Layout() {
                 <DropdownMenuLabel className="font-normal">
                   <div className="flex flex-col space-y-1">
                     <p className="text-sm font-semibold text-white leading-none">
-                      {user?.name || 'Sócio Gestor'}
+                      {user?.name || (isSecretaria ? 'Secretária' : 'Sócio Gestor')}
                     </p>
                     <p className="text-xs text-slate-400 leading-none">{user?.email}</p>
-                    <span className="inline-flex mt-1.5 w-fit items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-red-500/15 text-red-400 border border-red-500/20">
-                      Sócio / Administrador
+                    <span
+                      className={`inline-flex mt-1.5 w-fit items-center px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                        isSecretaria
+                          ? 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                          : 'bg-red-500/15 text-red-400 border border-red-500/20'
+                      }`}
+                    >
+                      {isSecretaria ? 'Secretaria' : 'Sócio / Administrador'}
                     </span>
                   </div>
                 </DropdownMenuLabel>
@@ -231,8 +356,36 @@ export default function Layout() {
             </span>
           </div>
 
-          <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#E63946] to-[#F97316] flex items-center justify-center text-white text-xs font-bold">
-            {getInitials(user?.name)}
+          <div className="flex items-center gap-2">
+            {/* Som Alerta */}
+            <button
+              onClick={toggleSound}
+              title={soundEnabled ? 'Silenciar som de alerta' : 'Ativar som de alerta'}
+              className={`p-1.5 rounded-lg border text-xs ${
+                soundEnabled
+                  ? 'text-emerald-400 border-emerald-500/30 bg-[#121722]'
+                  : 'text-slate-500 border-[#232A3B] bg-[#121722]'
+              }`}
+            >
+              {soundEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
+            </button>
+
+            {/* Alternar Tema */}
+            <button
+              onClick={toggleTheme}
+              title="Alternar tema"
+              className="p-1.5 rounded-lg border border-[#232A3B] bg-[#121722] text-slate-300"
+            >
+              {theme === 'dark' ? (
+                <Sun className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Moon className="w-4 h-4 text-slate-700" />
+              )}
+            </button>
+
+            <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-[#E63946] to-[#F97316] flex items-center justify-center text-white text-xs font-bold">
+              {getInitials(user?.name)}
+            </div>
           </div>
         </header>
 
@@ -276,7 +429,7 @@ export default function Layout() {
 
               {/* Menu items */}
               <nav className="flex-1 py-3 px-3 space-y-1 overflow-y-auto">
-                {NAV_ITEMS.map((item) => {
+                {navItems.map((item) => {
                   const Icon = item.icon
                   const isActive = location.pathname === item.path
                   return (
@@ -325,53 +478,23 @@ export default function Layout() {
 
         {/* Mobile Bottom Navigation Bar (≤640px) */}
         <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0E121B] border-t border-[#232A3B] z-30 flex items-center justify-around px-2">
-          <NavLink
-            to="/painel"
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
-                isActive ? 'text-[#E63946]' : 'text-slate-400 hover:text-slate-200'
-              }`
-            }
-          >
-            <LayoutDashboard className="w-5 h-5" />
-            <span>Painel</span>
-          </NavLink>
-
-          <NavLink
-            to="/vendas"
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
-                isActive ? 'text-[#E63946]' : 'text-slate-400 hover:text-slate-200'
-              }`
-            }
-          >
-            <TrendingUp className="w-5 h-5" />
-            <span>Vendas</span>
-          </NavLink>
-
-          <NavLink
-            to="/comissoes"
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
-                isActive ? 'text-[#E63946]' : 'text-slate-400 hover:text-slate-200'
-              }`
-            }
-          >
-            <BadgePercent className="w-5 h-5" />
-            <span>Comissões</span>
-          </NavLink>
-
-          <NavLink
-            to="/fluxo"
-            className={({ isActive }) =>
-              `flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
-                isActive ? 'text-[#E63946]' : 'text-slate-400 hover:text-slate-200'
-              }`
-            }
-          >
-            <ArrowLeftRight className="w-5 h-5" />
-            <span>Fluxo</span>
-          </NavLink>
+          {navItems.slice(0, 4).map((item) => {
+            const Icon = item.icon
+            return (
+              <NavLink
+                key={item.path}
+                to={item.path}
+                className={({ isActive }) =>
+                  `flex flex-col items-center gap-1 text-[11px] font-medium transition-colors ${
+                    isActive ? 'text-[#E63946]' : 'text-slate-400 hover:text-slate-200'
+                  }`
+                }
+              >
+                <Icon className="w-5 h-5" />
+                <span>{item.label}</span>
+              </NavLink>
+            )
+          })}
 
           <button
             onClick={() => setMobileDrawerOpen(true)}

@@ -6,6 +6,9 @@ interface AuthContextType {
   user: User | null
   token: string | null
   isLoading: boolean
+  isSocio: boolean
+  isSecretaria: boolean
+  hasMenuAccess: (path: string) => boolean
   login: (email: string, pass: string) => Promise<void>
   register: (name: string, email: string, pass: string) => Promise<void>
   logout: () => void
@@ -91,8 +94,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }
 
+  // Perfis e permissões:
+  // Sócio / Admin tem acesso total a tudo.
+  // Secretaria acessa: Painel, Vendas e Fluxo de Caixa (lançar vendas e despesas)
+  const isSocio = user?.perfil === 'socio' || user?.perfil === 'administrador' || !user?.perfil
+  const isSecretaria = user?.perfil === 'secretaria'
+
+  const hasMenuAccess = (path: string) => {
+    if (!user) return false
+    if (isSocio) return true
+    if (isSecretaria) {
+      const allowedPaths = ['/painel', '/vendas', '/fluxo']
+      return allowedPaths.includes(path)
+    }
+    return true
+  }
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, register, logout, refreshUser }}>
+    <AuthContext.Provider
+      value={{
+        user,
+        token,
+        isLoading,
+        isSocio,
+        isSecretaria,
+        hasMenuAccess,
+        login,
+        register,
+        logout,
+        refreshUser,
+      }}
+    >
       {children}
     </AuthContext.Provider>
   )

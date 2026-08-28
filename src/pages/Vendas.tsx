@@ -339,44 +339,46 @@ export default function Vendas() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 w-full max-w-full overflow-hidden">
       {/* Top Header Controls */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-white tracking-tight">Gestão de Vendas & VGV</h2>
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 w-full">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-xl font-bold text-white tracking-tight truncate">
+            Gestão de Vendas & VGV
+          </h2>
           <p className="text-xs text-slate-400">
             Registro de negociações, divisões proporcionais e geração automática de entradas e
             saídas
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <span className="hidden sm:inline-flex px-3 py-1.5 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400">
+        <div className="flex items-center gap-2.5 shrink-0 self-stretch sm:self-auto justify-between sm:justify-end">
+          <span className="inline-flex px-3 py-2 rounded-xl bg-[#121722] border border-[#232A3B] text-xs font-semibold text-red-400">
             {getPeriodoDates(periodo).label}
           </span>
           <Button
             onClick={handleOpenCreateModal}
-            className="bg-[#E63946] hover:bg-[#D62839] text-white font-semibold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2"
+            className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-10 px-4 rounded-xl shadow-lg shadow-[#E63946]/20 flex items-center gap-2 whitespace-nowrap shrink-0"
           >
             <Plus className="w-4 h-4" />
-            <span>+ Nova Venda</span>
+            <span>Nova Venda</span>
           </Button>
         </div>
       </div>
 
       {/* Filters & Search Toolbar */}
-      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-md">
-        <div className="relative flex-1 max-w-md">
+      <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3 shadow-md w-full">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
           <Input
             type="text"
             placeholder="Buscar por imóvel, cliente ou corretor..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="bg-[#0B0E14] border-[#232A3B] pl-9 text-xs text-slate-100 placeholder:text-slate-500 h-9"
+            className="bg-[#0B0E14] border-[#232A3B] pl-9 text-xs text-slate-100 placeholder:text-slate-500 h-9 w-full"
           />
         </div>
 
-        <div className="flex items-center gap-2.5 overflow-x-auto pb-1 md:pb-0">
+        <div className="flex flex-wrap items-center gap-2">
           {/* Filtro Status */}
           <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {['todos', 'realizada', 'pendente', 'cancelada'].map((st) => (
@@ -397,14 +399,14 @@ export default function Vendas() {
           {/* Filtro Situação Recebimento */}
           <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {[
-              { id: 'todos', label: 'Todas Situações' },
+              { id: 'todos', label: 'Todas' },
               { id: 'Recebido', label: 'Recebido' },
               { id: 'Parcial', label: 'Parcial' },
             ].map((sit) => (
               <button
                 key={sit.id}
                 onClick={() => setRecebimentoFilter(sit.id)}
-                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                className={`px-2 py-1 rounded-md font-medium transition-all ${
                   recebimentoFilter === sit.id
                     ? 'bg-[#1A2234] text-white border border-[#232A3B]'
                     : 'text-slate-400 hover:text-slate-200'
@@ -424,13 +426,13 @@ export default function Vendas() {
                 setSortDirection('desc')
               }
             }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B0E14] border border-[#232A3B] text-xs text-slate-300 hover:bg-[#1A2234]"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#0B0E14] border border-[#232A3B] text-xs text-slate-300 hover:bg-[#1A2234] shrink-0"
           >
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
             <span>
               {sortField === 'data_venda'
                 ? `Data (${sortDirection === 'desc' ? 'Recentes' : 'Antigas'})`
-                : 'Ordenar por Data'}
+                : 'Data'}
             </span>
           </button>
         </div>
