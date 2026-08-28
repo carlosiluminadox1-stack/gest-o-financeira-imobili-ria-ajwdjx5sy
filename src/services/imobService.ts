@@ -10,6 +10,8 @@ import {
   Fechamento,
   Configuracoes,
   SystemUser,
+  FormaPagamento,
+  SituacaoRecebimento,
 } from '@/types'
 
 // User Management Service
@@ -139,7 +141,8 @@ export const VendaService = {
     captadores?: string[]
     valor_vgv: number
     percentual_comissao: number
-    situacao_recebimento: 'Recebido' | 'Parcial'
+    forma_pagamento?: FormaPagamento
+    situacao_recebimento: SituacaoRecebimento
     valor_recebido?: number
     data_venda: string
     status: 'realizada' | 'pendente' | 'cancelada'
@@ -147,6 +150,7 @@ export const VendaService = {
   }): Promise<Venda> {
     const valor_comissao = (data.valor_vgv * data.percentual_comissao) / 100
     const situacao = data.situacao_recebimento || 'Recebido'
+    const forma = data.forma_pagamento || 'Centralizada'
     const valorRecebido =
       situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao)
 
@@ -168,6 +172,7 @@ export const VendaService = {
       valor_vgv: data.valor_vgv,
       percentual_comissao: data.percentual_comissao,
       valor_comissao,
+      forma_pagamento: forma,
       situacao_recebimento: situacao,
       valor_recebido: valorRecebido,
       data_venda: data.data_venda,
@@ -184,6 +189,7 @@ export const VendaService = {
         corretorId: data.corretor,
         captadorId: primaryCaptador || undefined,
         captadoresIds: captadoresList,
+        formaPagamento: forma,
         valorBase: valorRecebido,
         valorTotalComissao: valor_comissao,
         dataVenda: data.data_venda,
@@ -197,7 +203,8 @@ export const VendaService = {
   async update(
     id: string,
     data: Partial<Venda> & {
-      situacao_recebimento?: 'Recebido' | 'Parcial'
+      forma_pagamento?: FormaPagamento
+      situacao_recebimento?: SituacaoRecebimento
       valor_recebido?: number
     },
     userId: string,
@@ -210,6 +217,7 @@ export const VendaService = {
       data.percentual_comissao !== undefined ? data.percentual_comissao : prev.percentual_comissao
     const valor_comissao = (valor_vgv * percentual_comissao) / 100
 
+    const forma = data.forma_pagamento ?? prev.forma_pagamento ?? 'Centralizada'
     const situacao = data.situacao_recebimento ?? prev.situacao_recebimento ?? 'Recebido'
     let novoValorRecebido =
       situacao === 'Recebido'
@@ -239,6 +247,7 @@ export const VendaService = {
       captador: primaryCaptador,
       captadores: captadoresList,
       valor_comissao,
+      forma_pagamento: forma,
       situacao_recebimento: situacao,
       valor_recebido: novoValorRecebido,
     })
@@ -258,6 +267,7 @@ export const VendaService = {
         corretorId,
         captadorId: primaryCaptador || undefined,
         captadoresIds: captadoresList,
+        formaPagamento: forma,
         valorBase: novoValorRecebido,
         valorTotalComissao: valor_comissao,
         dataVenda,
@@ -273,6 +283,7 @@ export const VendaService = {
         corretorId,
         captadorId: primaryCaptador || undefined,
         captadoresIds: captadoresList,
+        formaPagamento: forma,
         valorBase: diferencaRecebida,
         valorTotalComissao: valor_comissao,
         dataVenda,
@@ -307,6 +318,7 @@ export const VendaService = {
     corretorId: string
     captadorId?: string
     captadoresIds?: string[]
+    formaPagamento?: FormaPagamento
     valorBase: number // valor recebido efetivamente (ou parcela complementar)
     valorTotalComissao: number
     dataVenda: string
@@ -319,6 +331,7 @@ export const VendaService = {
       corretorId,
       captadorId,
       captadoresIds,
+      formaPagamento = 'Centralizada',
       valorBase,
       dataVenda,
       userId,
@@ -343,16 +356,27 @@ export const VendaService = {
     const numCaptadores = captadores.length
     const hasCaptador = numCaptadores > 0
 
-    // Percentuais padrão: Imobiliária 50%, Corretor 40%, Captador 10% total, Imposto 6%
+    // Percentuais padrão: Imobiliária 50%, Corretor 40%, Captador 10% total
     const pctImob = config?.percentual_imobiliaria ?? 50
     const pctCorr = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob
     const pctCaptTotal = hasCaptador ? (config?.percentual_captador ?? 10) : 0
     const pctImposto = 6
 
+    // Repasses proporcionais
     const valCorr = (valorBase * pctCorr) / 100
     const valCaptTotal = hasCaptador ? (valorBase * pctCaptTotal) / 100 : 0
-    const valImposto = (valorBase * pctImposto) / 100
     const valImobTotal = (valorBase * pctImob) / 100
+
+    // Cálculo do imposto conforme forma de pagamento:
+    // Centralizada: imposto incide sobre 100% da comissão recebida
+    // Separada: imposto incide apenas sobre a parte da imobiliária (ex: 44% no padrão de 50%-6%)
+    const pctParteImobiliaria = 100 - pctCorr - pctCaptTotal // tipicamente 50% ou 100 - 40 - 10 = 50% (ou 44% se base imob)
+    // No texto do usuário: "Separada: cada parte recebe direto do cliente na sua própria conta. Imposto de 6% incide apenas sobre a parte da imobiliária."
+    // A base da imobiliária é (valorBase * pctParteImobiliaria / 100). Imposto = baseImob * 6%.
+    const valImposto =
+      formaPagamento === 'Separada'
+        ? ((valorBase * pctParteImobiliaria) / 100) * (pctImposto / 100)
+        : (valorBase * pctImposto) / 100
 
     const dataIso = dataVenda || new Date().toISOString()
     const prefixoDesc = ehComplementar
@@ -381,9 +405,10 @@ export const VendaService = {
     }
 
     // 1. Criar UMA transação de Entrada (categoria "comissao") com o valor recebido
+    const tagForma = formaPagamento === 'Separada' ? ' [Separada]' : ' [Centralizada]'
     await pb.collection('transacoes').create({
       tipo: 'entrada',
-      descricao: `${prefixoDesc} - ${tituloImovel}`,
+      descricao: `${prefixoDesc} - ${tituloImovel}${tagForma}`,
       categoria: 'comissao',
       valor: valorBase,
       data: dataIso,
@@ -393,6 +418,7 @@ export const VendaService = {
     })
 
     // 2. Gerar Saída Pendente para Corretor (40% ou configurado)
+    // Nas duas formas, a imobiliária é quem paga corretor e captador
     if (valCorr > 0) {
       await pb.collection('transacoes').create({
         tipo: 'saida',
@@ -406,7 +432,7 @@ export const VendaService = {
       })
     }
 
-    // 3. Gerar Saída Pendente para cada Captador (dividido igualmente: 50% do valor de captação quando houver 2 captadores)
+    // 3. Gerar Saída Pendente para cada Captador (dividido igualmente)
     if (hasCaptador && valCaptTotal > 0) {
       const valPorCaptador = valCaptTotal / numCaptadores
       const pctPorCaptador = pctCaptTotal / numCaptadores
@@ -428,11 +454,16 @@ export const VendaService = {
       }
     }
 
-    // 4. Gerar Saída Pendente de Imposto (6%)
+    // 4. Gerar Saída Pendente de Imposto (6% sobre total se Centralizada, ou 6% sobre parte da imob se Separada)
     if (valImposto > 0) {
+      const descImposto =
+        formaPagamento === 'Separada'
+          ? `Imposto Simples Nacional (6% s/ parte Imob) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`
+          : `Imposto Simples Nacional (6% total) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`
+
       await pb.collection('transacoes').create({
         tipo: 'saida',
-        descricao: `Imposto Simples Nacional (6%) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+        descricao: descImposto,
         categoria: 'imposto',
         valor: valImposto,
         data: dataIso,

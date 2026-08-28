@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-28T19:46:39.293Z",
+  "generatedAt": "2026-08-28T20:05:26.375Z",
   "collections": [
     {
       "name": "users",
@@ -217,6 +217,13 @@
           "required": false,
           "system": false,
           "collectionRef": "corretores"
+        },
+        {
+          "name": "forma_pagamento",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Centralizada", "Separada"]
         }
       ],
       "indexes": [

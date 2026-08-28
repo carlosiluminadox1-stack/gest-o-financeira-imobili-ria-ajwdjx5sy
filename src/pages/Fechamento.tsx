@@ -166,8 +166,29 @@ export default function FechamentoPage() {
     // Lucro Líquido
     const lucroLiquido = entradasEfetivas - saidasEfetivas
 
-    // Imposto Simples Nacional (6% do faturado)
-    const impostoEstimado = entradasEfetivas * 0.06
+    // Imposto Simples Nacional considerando a forma de pagamento de cada venda do mês
+    // Se Centralizada: 6% sobre o recebido. Se Separada: 6% sobre a parte da imobiliária (50%).
+    let impostoEstimado = 0
+    mVendas.forEach((v) => {
+      const sit = v.situacao_recebimento || 'Recebido'
+      const baseRec = sit === 'Recebido' ? v.valor_comissao : v.valor_recebido || 0
+      const hasCaptador = Boolean((v.captadores && v.captadores.length > 0) || v.captador)
+      const pctCorr = hasCaptador ? 40 : 50
+      const pctCapt = hasCaptador ? 10 : 0
+      const pctParteImob = 100 - pctCorr - pctCapt
+      const baseImob = (baseRec * pctParteImob) / 100
+
+      if (v.forma_pagamento === 'Separada') {
+        impostoEstimado += (baseImob * 6) / 100
+      } else {
+        impostoEstimado += (baseRec * 6) / 100
+      }
+    })
+
+    // Caso não haja vendas diretas cadastradas mas haja entradas avulsas
+    if (mVendas.length === 0 && entradasEfetivas > 0) {
+      impostoEstimado = entradasEfetivas * 0.06
+    }
 
     return {
       vendas: mVendas,
@@ -634,7 +655,7 @@ export default function FechamentoPage() {
 
             <div className="p-3 rounded-xl bg-[#0B0E14] print:bg-slate-50 flex items-center justify-between font-medium">
               <span className="text-slate-400 print:text-slate-600">
-                (-) Provisão Imposto Simples Nacional (~6%)
+                (-) Provisão Imposto Simples Nacional (Centralizada / Separada)
               </span>
               <span className="text-red-400 print:text-red-700 font-bold">
                 - {formatCurrency(monthData.impostoEstimado)}

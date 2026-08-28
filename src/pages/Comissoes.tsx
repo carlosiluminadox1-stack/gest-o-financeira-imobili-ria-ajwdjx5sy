@@ -48,6 +48,7 @@ export default function Comissoes() {
   // Filtros
   const [selectedCorretor, setSelectedCorretor] = useState<string>('todos')
   const [selectedTipo, setSelectedTipo] = useState<string>('todos')
+  const [selectedForma, setSelectedForma] = useState<string>('todos')
   const [selectedStatus, setSelectedStatus] = useState<string>('todos')
   const [selectedSituacao, setSelectedSituacao] = useState<string>('todos')
   const [searchTerm, setSearchTerm] = useState('')
@@ -95,6 +96,12 @@ export default function Comissoes() {
         if (selectedStatus === 'pendente' && c.status === 'paga') return false
       }
 
+      // Forma de pagamento da venda relacionada
+      if (selectedForma !== 'todos') {
+        const formaVenda = c.expand?.venda?.forma_pagamento || 'Centralizada'
+        if (formaVenda !== selectedForma) return false
+      }
+
       // Situação da venda relacionada
       if (selectedSituacao !== 'todos') {
         const sitVenda = c.expand?.venda?.situacao_recebimento || 'Recebido'
@@ -118,6 +125,7 @@ export default function Comissoes() {
     end,
     selectedCorretor,
     selectedTipo,
+    selectedForma,
     selectedStatus,
     selectedSituacao,
     searchTerm,
@@ -304,7 +312,7 @@ export default function Comissoes() {
           <span>Filtros Dinâmicos (Os gráficos e tabela reagem instantaneamente)</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2.5">
           {/* Corretor */}
           <div>
             <label className="block text-[11px] text-slate-400 mb-1">Corretor / Profissional</label>
@@ -333,6 +341,20 @@ export default function Comissoes() {
               <option value="todos">Todos os Tipos</option>
               <option value="venda">Venda (Fechador)</option>
               <option value="captacao">Captação (Imóvel)</option>
+            </select>
+          </div>
+
+          {/* Forma de Pagamento */}
+          <div>
+            <label className="block text-[11px] text-slate-400 mb-1">Forma Pagamento</label>
+            <select
+              value={selectedForma}
+              onChange={(e) => setSelectedForma(e.target.value)}
+              className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
+            >
+              <option value="todos">Todas Formas</option>
+              <option value="Centralizada">Centralizada</option>
+              <option value="Separada">Separada</option>
             </select>
           </div>
 
@@ -567,6 +589,7 @@ export default function Comissoes() {
                 <th className="py-3 px-4">Corretor</th>
                 <th className="py-3 px-4">Tipo</th>
                 <th className="py-3 px-4">Imóvel & Cliente</th>
+                <th className="py-3 px-4 text-center">Forma</th>
                 <th className="py-3 px-4 text-right">Percentual</th>
                 <th className="py-3 px-4 text-right">Valor da Comissão</th>
                 <th className="py-3 px-4 text-center">Status</th>
@@ -597,6 +620,17 @@ export default function Comissoes() {
                     <div className="text-[11px] text-slate-400 truncate">
                       {c.expand?.venda?.cliente || 'Cliente'}
                     </div>
+                  </td>
+                  <td className="py-3.5 px-4 text-center">
+                    <span
+                      className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                        c.expand?.venda?.forma_pagamento === 'Separada'
+                          ? 'bg-purple-500/15 text-purple-300 border border-purple-500/25'
+                          : 'bg-blue-500/15 text-blue-300 border border-blue-500/25'
+                      }`}
+                    >
+                      {c.expand?.venda?.forma_pagamento || 'Centralizada'}
+                    </span>
                   </td>
                   <td className="py-3.5 px-4 text-right font-medium text-slate-300">
                     {c.percentual}%
@@ -632,7 +666,7 @@ export default function Comissoes() {
 
               {filteredComissoes.length === 0 && (
                 <tr>
-                  <td colSpan={7} className="py-10 text-center text-slate-500">
+                  <td colSpan={8} className="py-10 text-center text-slate-500">
                     Nenhuma comissão encontrada para os filtros selecionados.
                   </td>
                 </tr>

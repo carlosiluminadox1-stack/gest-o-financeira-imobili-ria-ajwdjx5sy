@@ -21,7 +21,14 @@ import {
   X,
 } from 'lucide-react'
 import { VendaService, CorretorService, ConfigService } from '@/services/imobService'
-import { Venda, Corretor, VendaStatus, Configuracoes, SituacaoRecebimento } from '@/types'
+import {
+  Venda,
+  Corretor,
+  VendaStatus,
+  Configuracoes,
+  SituacaoRecebimento,
+  FormaPagamento,
+} from '@/types'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
@@ -48,6 +55,7 @@ export default function Vendas() {
   const [searchTerm, setSearchTerm] = useState('')
   const [statusFilter, setStatusFilter] = useState<string>('todos')
   const [recebimentoFilter, setRecebimentoFilter] = useState<string>('todos')
+  const [formaFilter, setFormaFilter] = useState<string>('todos')
   const [sortField, setSortField] = useState<'data_venda' | 'valor_vgv'>('data_venda')
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc')
 
@@ -65,6 +73,7 @@ export default function Vendas() {
   const [formPctComissao, setFormPctComissao] = useState<number>(6)
   const [formValorComissaoManual, setFormValorComissaoManual] = useState<number | ''>('')
   const [isComissaoManual, setIsComissaoManual] = useState(false)
+  const [formFormaPagamento, setFormFormaPagamento] = useState<FormaPagamento>('Centralizada')
   const [formSituacaoRecebimento, setFormSituacaoRecebimento] =
     useState<SituacaoRecebimento>('Recebido')
   const [formValorRecebido, setFormValorRecebido] = useState<number | ''>('')
@@ -121,6 +130,12 @@ export default function Vendas() {
           if (sit !== recebimentoFilter) return false
         }
 
+        // Forma de Pagamento
+        if (formaFilter !== 'todos') {
+          const forma = v.forma_pagamento || 'Centralizada'
+          if (forma !== formaFilter) return false
+        }
+
         // Busca
         if (searchTerm.trim()) {
           const term = searchTerm.toLowerCase()
@@ -140,7 +155,17 @@ export default function Vendas() {
           return sortDirection === 'asc' ? a.valor_vgv - b.valor_vgv : b.valor_vgv - a.valor_vgv
         }
       })
-  }, [vendas, start, end, statusFilter, recebimentoFilter, searchTerm, sortField, sortDirection])
+  }, [
+    vendas,
+    start,
+    end,
+    statusFilter,
+    recebimentoFilter,
+    formaFilter,
+    searchTerm,
+    sortField,
+    sortDirection,
+  ])
 
   // Cálculo da comissão total
   const vgvNumber = typeof formVgv === 'number' ? formVgv : 0
@@ -164,14 +189,28 @@ export default function Vendas() {
   const pctCorrConfig = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImobConfig
   const pctCaptTotalConfig = hasCaptador ? (config?.percentual_captador ?? 10) : 0
   const pctPorCaptador = numCaptadores > 0 ? pctCaptTotalConfig / numCaptadores : 0
-  const pctImpostoConfig = 6 // Imposto fixo de 6% sobre o recebido
+  const pctImpostoConfig = 6 // Alíquota do Simples Nacional (6%)
 
   // Valores calculados sobre a base recebida
   const valCorr = (valorBaseCalculo * pctCorrConfig) / 100
   const valCaptTotal = hasCaptador ? (valorBaseCalculo * pctCaptTotalConfig) / 100 : 0
   const valPorCaptador = numCaptadores > 0 ? valCaptTotal / numCaptadores : 0
-  const valImposto = (valorBaseCalculo * pctImpostoConfig) / 100
-  // Líquido Alfa: valor recebido - 40% corretor - 10% captador - 6% imposto = 44% (ex: 8.800 de 20.000)
+
+  // Parte da imobiliária (ex: 50% ou restante)
+  const pctParteImob = 100 - pctCorrConfig - pctCaptTotalConfig
+  const valBaseImobiliaria = (valorBaseCalculo * pctParteImob) / 100
+
+  // Imposto conforme forma de pagamento:
+  // Centralizada: 6% sobre o valor TOTAL recebido
+  // Separada: 6% APENAS sobre a parte da imobiliária
+  const valImposto =
+    formFormaPagamento === 'Separada'
+      ? (valBaseImobiliaria * pctImpostoConfig) / 100
+      : (valorBaseCalculo * pctImpostoConfig) / 100
+
+  // Líquido Imobiliária:
+  // Na Centralizada: Recebido total - Repasse Corretor - Repasse Captador - Imposto (6% total) = 44% no padrão (ex: 8.800 de 20.000)
+  // Na Separada: Parte Imob (50%) - Imposto (6% sobre 50% = 3%) = 47% do total (ou 50% - 6% da parte imob)
   const valImobLiquido = valorBaseCalculo - valCorr - valCaptTotal - valImposto
   const valImobBruto = (valorBaseCalculo * pctImobConfig) / 100
 
@@ -209,6 +248,7 @@ export default function Vendas() {
     setFormPctComissao(config?.percentual_comissao_padrao ?? 6)
     setIsComissaoManual(false)
     setFormValorComissaoManual('')
+    setFormFormaPagamento('Centralizada')
     setFormSituacaoRecebimento('Recebido')
     setFormValorRecebido('')
     setFormDataVenda(new Date().toISOString().split('T')[0])
@@ -236,6 +276,7 @@ export default function Vendas() {
     setFormPctComissao(venda.percentual_comissao)
     setIsComissaoManual(false)
     setFormValorComissaoManual(venda.valor_comissao)
+    setFormFormaPagamento(venda.forma_pagamento || 'Centralizada')
     const sit = venda.situacao_recebimento || 'Recebido'
     setFormSituacaoRecebimento(sit)
     setFormValorRecebido(venda.valor_recebido ?? (sit === 'Recebido' ? venda.valor_comissao : ''))
@@ -286,6 +327,7 @@ export default function Vendas() {
             captadores: formCaptadores,
             valor_vgv: Number(formVgv),
             percentual_comissao: formPctComissao,
+            forma_pagamento: formFormaPagamento,
             situacao_recebimento: formSituacaoRecebimento,
             valor_recebido: valRecFinal,
             data_venda: dataIso,
@@ -303,6 +345,7 @@ export default function Vendas() {
           captadores: formCaptadores,
           valor_vgv: Number(formVgv),
           percentual_comissao: formPctComissao,
+          forma_pagamento: formFormaPagamento,
           situacao_recebimento: formSituacaoRecebimento,
           valor_recebido: valRecFinal,
           data_venda: dataIso,
@@ -378,6 +421,27 @@ export default function Vendas() {
     )
   }
 
+  const getFormaBadge = (forma?: FormaPagamento) => {
+    if (forma === 'Separada') {
+      return (
+        <span
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30"
+          title="Cada parte recebe direto na sua conta. Imposto de 6% incide apenas sobre a parte da imobiliária."
+        >
+          Separada
+        </span>
+      )
+    }
+    return (
+      <span
+        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
+        title="Cliente paga tudo na conta da imobiliária. Imposto de 6% sobre o valor total."
+      >
+        Centralizada
+      </span>
+    )
+  }
+
   return (
     <div className="space-y-6 w-full max-w-full overflow-hidden">
       {/* Top Header Controls */}
@@ -436,10 +500,31 @@ export default function Vendas() {
             ))}
           </div>
 
+          {/* Filtro Forma de Pagamento */}
+          <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
+            {[
+              { id: 'todos', label: 'Todas Formas' },
+              { id: 'Centralizada', label: 'Centralizada' },
+              { id: 'Separada', label: 'Separada' },
+            ].map((f) => (
+              <button
+                key={f.id}
+                onClick={() => setFormaFilter(f.id)}
+                className={`px-2 py-1 rounded-md font-medium transition-all ${
+                  formaFilter === f.id
+                    ? 'bg-[#1A2234] text-white border border-[#232A3B]'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+
           {/* Filtro Situação Recebimento */}
           <div className="flex items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {[
-              { id: 'todos', label: 'Todas' },
+              { id: 'todos', label: 'Todas Situações' },
               { id: 'Recebido', label: 'Recebido' },
               { id: 'Parcial', label: 'Parcial' },
             ].map((sit) => (
@@ -489,6 +574,7 @@ export default function Vendas() {
                 <th className="py-3.5 px-4 text-right">VGV</th>
                 <th className="py-3.5 px-4 text-right">Comissão Total</th>
                 <th className="py-3.5 px-4 text-right">Valor Recebido</th>
+                <th className="py-3.5 px-4 text-center">Forma</th>
                 <th className="py-3.5 px-4 text-center">Situação</th>
                 <th className="py-3.5 px-4">Data</th>
                 <th className="py-3.5 px-4 text-center">Status</th>
@@ -546,6 +632,7 @@ export default function Vendas() {
                     <td className="py-3.5 px-4 text-right font-bold text-emerald-400 tabular-nums">
                       {formatCurrency(valorRec)}
                     </td>
+                    <td className="py-3.5 px-4 text-center">{getFormaBadge(v.forma_pagamento)}</td>
                     <td className="py-3.5 px-4 text-center">{getSituacaoBadge(situacao)}</td>
                     <td className="py-3.5 px-4 text-slate-400">
                       {new Date(v.data_venda).toLocaleDateString('pt-BR')}
@@ -579,7 +666,7 @@ export default function Vendas() {
 
               {filteredVendas.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-slate-500">
+                  <td colSpan={10} className="py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Building className="w-8 h-8 text-slate-600" />
                       <p className="font-medium">
@@ -800,13 +887,13 @@ export default function Vendas() {
               </div>
             </div>
 
-            {/* Seção Fluxo de Recebimento */}
-            <div className="p-4 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
+            {/* Seção Forma de Pagamento & Situação de Recebimento */}
+            <div className="p-4 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3.5">
               <div className="flex items-center justify-between pb-2 border-b border-[#232A3B]">
                 <div className="flex items-center gap-2">
                   <Receipt className="w-4 h-4 text-[#E63946]" />
                   <span className="font-bold text-xs text-white uppercase tracking-wider">
-                    Condição & Situação de Recebimento
+                    Forma de Pagamento & Recebimento
                   </span>
                 </div>
                 <span className="text-xs text-slate-400">
@@ -817,7 +904,66 @@ export default function Vendas() {
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              {/* Escolha da Forma de Pagamento: Centralizada vs Separada */}
+              <div>
+                <label className="block text-xs font-semibold text-slate-200 mb-2">
+                  Forma de Pagamento da Comissão *
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  <div
+                    onClick={() => setFormFormaPagamento('Centralizada')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      formFormaPagamento === 'Centralizada'
+                        ? 'bg-[#1A2234] border-[#E63946] ring-1 ring-[#E63946]/50 shadow-md'
+                        : 'bg-[#121722] border-[#232A3B] hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${formFormaPagamento === 'Centralizada' ? 'bg-[#E63946]' : 'bg-slate-600'}`}
+                        />
+                        Centralizada
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-red-500/20 text-red-300">
+                        Imposto 6% s/ Total
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Cliente paga tudo na conta da imobiliária. A imobiliária desconta 6% de
+                      imposto sobre o valor total e depois paga corretor e captador.
+                    </p>
+                  </div>
+
+                  <div
+                    onClick={() => setFormFormaPagamento('Separada')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all ${
+                      formFormaPagamento === 'Separada'
+                        ? 'bg-[#1A2234] border-[#E63946] ring-1 ring-[#E63946]/50 shadow-md'
+                        : 'bg-[#121722] border-[#232A3B] hover:border-slate-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${formFormaPagamento === 'Separada' ? 'bg-[#E63946]' : 'bg-slate-600'}`}
+                        />
+                        Separada
+                      </span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-emerald-500/20 text-emerald-300">
+                        Imposto 6% s/ Parte Imob
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      Cada parte recebe direto na sua própria conta. Imposto de 6% incide apenas
+                      sobre a parte da imobiliária.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Situação do Recebimento (Recebido total ou Parcial) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#232A3B]/60">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     Situação do Recebimento *
@@ -859,10 +1005,9 @@ export default function Vendas() {
                 <div className="text-[11px] text-amber-300/90 bg-amber-500/10 p-2.5 rounded-lg border border-amber-500/20 flex items-start gap-2">
                   <AlertCircle className="w-4 h-4 shrink-0 text-amber-400 mt-0.5" />
                   <span>
-                    <strong>Regra importante:</strong> O corretor e o captador só recebem
-                    proporcional ao que a imobiliária recebeu efetivamente. Quando o cliente pagar o
-                    restante, edite esta venda e aumente o valor recebido para gerar as saídas
-                    complementares.
+                    <strong>Situação Parcial:</strong> Corretor e captador só recebem proporcional
+                    ao que foi recebido. Nada é pago antes. Ao receber o restante, edite a venda e
+                    aumente o valor recebido para gerar as saídas complementares.
                   </span>
                 </div>
               )}
@@ -912,14 +1057,17 @@ export default function Vendas() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-center text-xs">
-                {/* Imobiliária Líquido (44%) */}
+                {/* Imobiliária Líquido */}
                 <div className="p-2.5 rounded-xl bg-[#121722] border border-[#E63946]/30 text-left relative overflow-hidden">
                   <div className="flex items-center justify-between">
                     <p className="text-[10px] text-red-400 font-bold uppercase tracking-wider">
                       Imobiliária (Líquido)
                     </p>
                     <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-300 font-bold">
-                      44%
+                      {valorBaseCalculo > 0
+                        ? ((valImobLiquido / valorBaseCalculo) * 100).toFixed(1)
+                        : 0}
+                      %
                     </span>
                   </div>
                   <p className="font-black text-white text-base mt-1">
@@ -977,7 +1125,11 @@ export default function Vendas() {
                   <p className="font-black text-red-400 text-base mt-1">
                     {formatCurrency(valImposto)}
                   </p>
-                  <p className="text-[9px] text-slate-400 mt-0.5">Simples Nacional</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    {formFormaPagamento === 'Separada'
+                      ? '6% s/ parte Imob (R$ ' + formatCurrency(valBaseImobiliaria) + ')'
+                      : '6% s/ valor total'}
+                  </p>
                 </div>
               </div>
             </div>
