@@ -6,6 +6,7 @@ interface AnimatedCounterProps {
   suffix?: string
   decimals?: number
   duration?: number
+  formatter?: (val: number) => string
 }
 
 export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
@@ -14,6 +15,7 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
   suffix = '',
   decimals = 0,
   duration = 600,
+  formatter,
 }) => {
   const [displayValue, setDisplayValue] = useState(0)
 
@@ -38,6 +40,14 @@ export const AnimatedCounter: React.FC<AnimatedCounterProps> = ({
 
     window.requestAnimationFrame(step)
   }, [value, duration])
+
+  if (formatter) {
+    return (
+      <span className="tabular-nums font-bold tracking-tight animate-count">
+        {formatter(displayValue)}
+      </span>
+    )
+  }
 
   const formatted = displayValue.toLocaleString('pt-BR', {
     minimumFractionDigits: decimals,
