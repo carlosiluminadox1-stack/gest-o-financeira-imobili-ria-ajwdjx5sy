@@ -5,7 +5,7 @@ export interface DivisaoComissaoInput {
   formaPagamento?: FormaPagamento
   temCaptador?: boolean
   numCaptadores?: number
-  // Percentuais configurados (caso customizados)
+  // Percentuais de divisão (Imobiliária, Corretor, Captador(es))
   pctImobConfig?: number // Padrão: 50
   pctCorrConfig?: number // Padrão: 40
   pctCaptConfig?: number // Padrão: 10
@@ -40,22 +40,30 @@ export interface DivisaoComissaoResult {
 }
 
 /**
- * Realiza a divisão de comissão seguindo estritamente as regras de negócio:
+ * Realiza a divisão de comissão seguindo estritamente as regras de negócio dos prints e especificações:
  *
- * Divisão base antes do imposto: Imobiliária 50%, Corretor 40%, Captador(es) 10%.
- * (Sem captador: Corretor 50%, Imobiliária 50%).
+ * Divisão base padrão: Imobiliária 50%, Corretor 40%, Captador(es) 10%.
+ * (Sem captador: pode ser configurado ou 0% captador).
  *
  * CENTRALIZADA:
- * 1. Desconta 6% de imposto sobre o valor total recebido.
- * 2. A base líquida restante (94%) é dividida entre as partes: Imobiliária 50%, Corretor 40%, Captador(es) 10% sobre a base líquida.
- * 3. Gera saídas pendentes de corretor, captador(es) e imposto (6%).
- * Exemplo R$ 20.000: imposto R$ 1.200 -> base líquida R$ 18.800 -> Imobiliária R$ 9.400, Corretor R$ 7.520, Captador R$ 1.880.
+ * 1. O imposto de 6% é calculado sobre o VALOR TOTAL da comissão (ex: R$ 22.200 -> Imposto 6% = R$ 1.332,00).
+ * 2. O valor de referência bruto da Imobiliária é 50% de 22.200 = R$ 11.100,00.
+ * 3. O Corretor recebe 40% do total = R$ 8.880,00 e o Captador recebe 10% do total = R$ 2.220,00.
+ * 4. Como a imobiliária arca com o imposto de toda a operação (ou o imposto é descontado do montante),
+ *    o Líquido para a imobiliária é: R$ 11.100,00 - R$ 1.332,00 = R$ 9.768,00.
+ *    (Conforme Print 2: Imobiliária: R$ 11.100,00 | Corretor: R$ 8.880,00 | Captador: R$ 2.220,00 | Imposto 6%: R$ 1.332,00 | Líquido para imobiliária: R$ 9.768,00).
  *
  * SEPARADA:
- * 1. Cada parte recebe direto do cliente. A imobiliária recebe a parte dela (50%), tira 6% de imposto apenas sobre essa parte, o restante é lucro da imobiliária.
- * 2. Corretor recebe 40% INTEGRAL (sem imposto) e Captador(es) 10% INTEGRAL (sem imposto).
- * 3. A imobiliária gera saídas de corretor e captador(es).
- * Exemplo R$ 20.000: Imobiliária parte bruta = R$ 10.000 -> imposto 6% = R$ 600 -> líquido R$ 9.400; Corretor R$ 8.000; Captador R$ 2.000.
+ * 1. A comissão total é dividida entre as partes primeiro:
+ *    Imobiliária Bruto (50%) = R$ 11.100,00
+ *    Corretor (40%) = R$ 8.880,00
+ *    Captador (10%) = R$ 2.220,00
+ * 2. O imposto de 6% incide APENAS sobre a parte da imobiliária:
+ *    6% de R$ 11.100,00 = R$ 666,00.
+ * 3. O Corretor e o Captador recebem seus valores integrais (R$ 8.880,00 e R$ 2.220,00).
+ * 4. O líquido da imobiliária é sua parte bruta menos o imposto de 6% sobre ela:
+ *    R$ 11.100,00 - R$ 666,00 = R$ 10.434,00.
+ *    (Conforme Print 3: Imobiliária: R$ 11.100,00 | Corretor: R$ 8.880,00 | Captador: R$ 2.220,00 | Imposto 6%: R$ 666,00 | Líquido para imobiliária: R$ 10.434,00).
  */
 export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoComissaoResult {
   const valorBase = Math.max(0, Number(input.valorBase) || 0)
@@ -66,10 +74,16 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
   const numCaptadores = Math.max(0, input.numCaptadores ?? (input.temCaptador ? 1 : 0))
   const temCaptador = numCaptadores > 0 || Boolean(input.temCaptador)
 
-  // Percentuais configurados
-  const pctImobConfig = input.pctImobConfig ?? 50
-  const pctCaptTotalConfig = temCaptador ? (input.pctCaptConfig ?? 10) : 0
-  const pctCorrConfig = temCaptador ? (input.pctCorrConfig ?? 40) : 100 - pctImobConfig
+  // Percentuais configurados ou passados
+  const pctImobConfig = input.pctImobConfig !== undefined ? Number(input.pctImobConfig) : 50
+  const pctCaptTotalConfig =
+    input.pctCaptConfig !== undefined ? Number(input.pctCaptConfig) : temCaptador ? 10 : 0
+  const pctCorrConfig =
+    input.pctCorrConfig !== undefined
+      ? Number(input.pctCorrConfig)
+      : temCaptador
+        ? 40
+        : 100 - pctImobConfig
 
   const pctPorCaptador = numCaptadores > 0 ? pctCaptTotalConfig / numCaptadores : 0
 
@@ -98,26 +112,27 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
     }
   }
 
+  // Valores nominais / brutos das partes sobre a comissão total
+  const valorImobiliariaBruto = (valorBase * pctImobConfig) / 100
+  const valorCorretor = (valorBase * pctCorrConfig) / 100
+  const valorCaptadorTotal = (valorBase * pctCaptTotalConfig) / 100
+  const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
+
   if (formaPagamento === 'Centralizada') {
-    // 1. Imposto sobre 100% do valor total
+    // 1. Imposto sobre 100% do valor total da comissão
     const valorImposto = (valorBase * aliquotaImposto) / 100
-    // 2. Base líquida após desconto de 6%
-    const baseLiquida = valorBase - valorImposto
 
-    // 3. Divisão entre as partes sobre a base líquida
-    const valorImobiliariaLiquido = (baseLiquida * pctImobConfig) / 100
-    const valorCorretor = (baseLiquida * pctCorrConfig) / 100
-    const valorCaptadorTotal = temCaptador ? (baseLiquida * pctCaptTotalConfig) / 100 : 0
-    const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
-    const valorImobiliariaBruto = (valorBase * pctImobConfig) / 100
+    // 2. Líquido da imobiliária = Parte Bruta da Imobiliária - Imposto Total de 6%
+    const valorImobiliariaLiquido = valorImobiliariaBruto - valorImposto
 
-    const pctImobiliariaLiquidoReal = (valorImobiliariaLiquido / valorBase) * 100
+    const pctImobiliariaLiquidoReal =
+      valorBase > 0 ? (valorImobiliariaLiquido / valorBase) * 100 : 0
 
     return {
       formaPagamento: 'Centralizada',
       valorBase,
       aliquotaImposto,
-      baseCalculoPartes: baseLiquida,
+      baseCalculoPartes: valorBase,
       valorImposto,
       baseImposto: valorBase,
       descricaoImposto: `6% sobre o valor total (R$ ${valorBase.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
@@ -136,20 +151,13 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
     }
   } else {
     // SEPARADA:
-    // Corretor e captadores recebem integral (40% e 10% sobre o valor total)
-    const valorCorretor = (valorBase * pctCorrConfig) / 100
-    const valorCaptadorTotal = temCaptador ? (valorBase * pctCaptTotalConfig) / 100 : 0
-    const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
-
-    // Parte bruta da imobiliária (50% ou percentual restante)
-    const pctParteImob = 100 - pctCorrConfig - pctCaptTotalConfig
-    const valorImobiliariaBruto = (valorBase * pctParteImob) / 100
-
     // Imposto de 6% incide APENAS sobre a parte da imobiliária
     const valorImposto = (valorImobiliariaBruto * aliquotaImposto) / 100
+    // Líquido da imobiliária = Parte Bruta da Imobiliária - Imposto de 6% sobre ela
     const valorImobiliariaLiquido = valorImobiliariaBruto - valorImposto
 
-    const pctImobiliariaLiquidoReal = (valorImobiliariaLiquido / valorBase) * 100
+    const pctImobiliariaLiquidoReal =
+      valorBase > 0 ? (valorImobiliariaLiquido / valorBase) * 100 : 0
 
     return {
       formaPagamento: 'Separada',

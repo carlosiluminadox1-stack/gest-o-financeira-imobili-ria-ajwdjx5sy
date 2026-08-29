@@ -142,6 +142,13 @@ export const VendaService = {
     captadores?: string[]
     valor_vgv: number
     percentual_comissao: number
+    valor_comissao?: number
+    tipo_venda?: 'venda' | 'locacao' | 'administracao'
+    data_recebimento?: string
+    is_valor_fixo?: boolean
+    pct_imobiliaria?: number
+    pct_corretor?: number
+    pct_captador?: number
     forma_pagamento?: FormaPagamento
     situacao_recebimento: SituacaoRecebimento
     valor_recebido?: number
@@ -149,7 +156,10 @@ export const VendaService = {
     status: 'realizada' | 'pendente' | 'cancelada'
     userId: string
   }): Promise<Venda> {
-    const valor_comissao = (data.valor_vgv * data.percentual_comissao) / 100
+    const valor_comissao =
+      data.valor_comissao !== undefined
+        ? data.valor_comissao
+        : (data.valor_vgv * data.percentual_comissao) / 100
     const situacao = data.situacao_recebimento || 'Recebido'
     const forma = data.forma_pagamento || 'Centralizada'
     const valorRecebido =
@@ -173,6 +183,9 @@ export const VendaService = {
       valor_vgv: data.valor_vgv,
       percentual_comissao: data.percentual_comissao,
       valor_comissao,
+      tipo_venda: data.tipo_venda || 'venda',
+      data_recebimento: data.data_recebimento || data.data_venda,
+      is_valor_fixo: Boolean(data.is_valor_fixo),
       forma_pagamento: forma,
       situacao_recebimento: situacao,
       valor_recebido: valorRecebido,
@@ -193,7 +206,11 @@ export const VendaService = {
         formaPagamento: forma,
         valorBase: valorRecebido,
         valorTotalComissao: valor_comissao,
-        dataVenda: data.data_venda,
+        pctImob: data.pct_imobiliaria,
+        pctCorr: data.pct_corretor,
+        pctCapt: data.pct_captador,
+        dataVenda: data.data_recebimento || data.data_venda,
+        dataCompetencia: data.data_venda,
         userId: data.userId,
         ehComplementar: false,
       })
@@ -207,16 +224,26 @@ export const VendaService = {
       forma_pagamento?: FormaPagamento
       situacao_recebimento?: SituacaoRecebimento
       valor_recebido?: number
+      pct_imobiliaria?: number
+      pct_corretor?: number
+      pct_captador?: number
     },
     userId: string,
   ): Promise<Venda> {
     const prev = await pb.collection('vendas').getOne<Venda>(id, {
       expand: 'corretor,captador,captadores',
     })
+    const isValorFixo =
+      data.is_valor_fixo !== undefined ? Boolean(data.is_valor_fixo) : Boolean(prev.is_valor_fixo)
     const valor_vgv = data.valor_vgv !== undefined ? data.valor_vgv : prev.valor_vgv
     const percentual_comissao =
       data.percentual_comissao !== undefined ? data.percentual_comissao : prev.percentual_comissao
-    const valor_comissao = (valor_vgv * percentual_comissao) / 100
+    const valor_comissao =
+      data.valor_comissao !== undefined
+        ? data.valor_comissao
+        : isValorFixo
+          ? prev.valor_comissao
+          : (valor_vgv * percentual_comissao) / 100
 
     const forma = data.forma_pagamento ?? prev.forma_pagamento ?? 'Centralizada'
     const situacao = data.situacao_recebimento ?? prev.situacao_recebimento ?? 'Recebido'
@@ -258,6 +285,7 @@ export const VendaService = {
     const titulo = data.titulo_imovel ?? prev.titulo_imovel
     const cliente = data.cliente ?? prev.cliente
     const dataVenda = data.data_venda ?? prev.data_venda
+    const dataRecebimento = data.data_recebimento ?? prev.data_recebimento ?? dataVenda
 
     // Se antes não era realizada e agora virou realizada
     if (statusNovo === 'realizada' && prev.status !== 'realizada' && novoValorRecebido > 0) {
@@ -271,7 +299,11 @@ export const VendaService = {
         formaPagamento: forma,
         valorBase: novoValorRecebido,
         valorTotalComissao: valor_comissao,
-        dataVenda,
+        pctImob: data.pct_imobiliaria,
+        pctCorr: data.pct_corretor,
+        pctCapt: data.pct_captador,
+        dataVenda: dataRecebimento,
+        dataCompetencia: dataVenda,
         userId,
         ehComplementar: false,
       })
@@ -287,7 +319,11 @@ export const VendaService = {
         formaPagamento: forma,
         valorBase: diferencaRecebida,
         valorTotalComissao: valor_comissao,
-        dataVenda,
+        pctImob: data.pct_imobiliaria,
+        pctCorr: data.pct_corretor,
+        pctCapt: data.pct_captador,
+        dataVenda: dataRecebimento,
+        dataCompetencia: dataVenda,
         userId,
         ehComplementar: true,
       })
@@ -322,7 +358,11 @@ export const VendaService = {
     formaPagamento?: FormaPagamento
     valorBase: number // valor recebido efetivamente (ou parcela complementar)
     valorTotalComissao: number
+    pctImob?: number
+    pctCorr?: number
+    pctCapt?: number
     dataVenda: string
+    dataCompetencia?: string
     userId: string
     ehComplementar?: boolean
   }) {
@@ -334,7 +374,11 @@ export const VendaService = {
       captadoresIds,
       formaPagamento = 'Centralizada',
       valorBase,
+      pctImob: paramPctImob,
+      pctCorr: paramPctCorr,
+      pctCapt: paramPctCapt,
       dataVenda,
+      dataCompetencia,
       userId,
       ehComplementar,
     } = params
@@ -357,10 +401,11 @@ export const VendaService = {
     const numCaptadores = captadores.length
     const hasCaptador = numCaptadores > 0
 
-    // Percentuais padrão: Imobiliária 50%, Corretor 40%, Captador 10% total
-    const pctImob = config?.percentual_imobiliaria ?? 50
-    const pctCorr = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob
-    const pctCaptTotal = hasCaptador ? (config?.percentual_captador ?? 10) : 0
+    // Percentuais: se vierem customizados no form usa eles, senão usa config do usuário
+    const pctImob = paramPctImob ?? config?.percentual_imobiliaria ?? 50
+    const pctCorr =
+      paramPctCorr ?? (hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob)
+    const pctCaptTotal = paramPctCapt ?? (hasCaptador ? (config?.percentual_captador ?? 10) : 0)
 
     // Usar cálculo centralizado e padronizado
     const calc = calcularDivisaoComissao({
@@ -413,6 +458,8 @@ export const VendaService = {
       categoria: 'comissao',
       valor: valorBase,
       data: dataIso,
+      data_competencia: dataCompetencia || dataIso,
+      data_vencimento: dataIso,
       consolidado: false,
       venda: vendaId,
       user: userId,
@@ -429,6 +476,8 @@ export const VendaService = {
         categoria: 'repasse',
         valor: valCorr,
         data: dataIso,
+        data_competencia: dataCompetencia || dataIso,
+        data_vencimento: dataIso,
         consolidado: false,
         venda: vendaId,
         user: userId,
@@ -452,6 +501,8 @@ export const VendaService = {
           categoria: 'repasse',
           valor: valPorCaptador,
           data: dataIso,
+          data_competencia: dataCompetencia || dataIso,
+          data_vencimento: dataIso,
           consolidado: false,
           venda: vendaId,
           user: userId,
@@ -472,6 +523,8 @@ export const VendaService = {
         categoria: 'imposto',
         valor: valImposto,
         data: dataIso,
+        data_competencia: dataCompetencia || dataIso,
+        data_vencimento: dataIso,
         consolidado: false,
         venda: vendaId,
         user: userId,

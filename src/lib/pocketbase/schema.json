@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-29T11:28:19.574Z",
+  "generatedAt": "2026-08-29T11:51:11.534Z",
   "collections": [
     {
       "name": "users",
@@ -224,6 +224,25 @@
           "required": false,
           "system": false,
           "selectValues": ["Centralizada", "Separada"]
+        },
+        {
+          "name": "tipo_venda",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["venda", "locacao", "administracao"]
+        },
+        {
+          "name": "data_recebimento",
+          "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "is_valor_fixo",
+          "type": "bool",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [

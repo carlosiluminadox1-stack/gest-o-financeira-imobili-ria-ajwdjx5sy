@@ -24,6 +24,7 @@ export interface Corretor {
 export type VendaStatus = 'realizada' | 'pendente' | 'cancelada'
 export type SituacaoRecebimento = 'Recebido' | 'Parcial'
 export type FormaPagamento = 'Centralizada' | 'Separada'
+export type TipoVenda = 'venda' | 'locacao' | 'administracao'
 
 export interface Venda {
   id: string
@@ -35,6 +36,9 @@ export interface Venda {
   valor_vgv: number
   percentual_comissao: number
   valor_comissao: number
+  tipo_venda?: TipoVenda
+  data_recebimento?: string
+  is_valor_fixo?: boolean
   forma_pagamento?: FormaPagamento
   situacao_recebimento?: SituacaoRecebimento
   valor_recebido?: number
