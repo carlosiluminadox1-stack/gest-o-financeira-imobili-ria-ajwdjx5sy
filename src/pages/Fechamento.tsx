@@ -40,6 +40,7 @@ import {
   TransacaoService,
 } from '@/services/imobService'
 import { Fechamento, Venda, Despesa, NotaFiscal, Transacao } from '@/types'
+import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
@@ -124,22 +125,33 @@ export default function FechamentoPage() {
     const totalVgv = mVendas.reduce((acc, v) => acc + v.valor_vgv, 0)
     const totalComissoesVenda = mVendas.reduce((acc, v) => acc + v.valor_comissao, 0)
 
-    // Comissões de Venda vs Captação calculadas
+    // Comissões de Venda vs Captação calculadas e Imposto usando a regra unificada
     let comissaoVendaCorretor = 0
     let comissaoCaptacaoCorretor = 0
+    let repasseImobiliariaLiquido = 0
     let repasseImobiliariaBruto = 0
+    let impostoEstimado = 0
 
     mVendas.forEach((v) => {
       const sit = v.situacao_recebimento || 'Recebido'
       const baseRec = sit === 'Recebido' ? v.valor_comissao : v.valor_recebido || 0
-      const hasCaptador = Boolean((v.captadores && v.captadores.length > 0) || v.captador)
+      const numCaptadores =
+        v.captadores && v.captadores.length > 0 ? v.captadores.length : v.captador ? 1 : 0
+      const hasCaptador = numCaptadores > 0
 
-      const pctCorr = hasCaptador ? 40 : 50
-      const pctCapt = hasCaptador ? 10 : 0
+      const calc = calcularDivisaoComissao({
+        valorBase: baseRec,
+        formaPagamento: v.forma_pagamento || 'Centralizada',
+        temCaptador: hasCaptador,
+        numCaptadores,
+        aliquotaImposto: 6,
+      })
 
-      comissaoVendaCorretor += (baseRec * pctCorr) / 100
-      comissaoCaptacaoCorretor += (baseRec * pctCapt) / 100
-      repasseImobiliariaBruto += baseRec * 0.5
+      comissaoVendaCorretor += calc.valorCorretor
+      comissaoCaptacaoCorretor += calc.valorCaptadorTotal
+      repasseImobiliariaLiquido += calc.valorImobiliariaLiquido
+      repasseImobiliariaBruto += calc.valorImobiliariaBruto
+      impostoEstimado += calc.valorImposto
     })
 
     // Transações do mês (Fluxo de Caixa)
@@ -166,26 +178,7 @@ export default function FechamentoPage() {
     // Lucro Líquido
     const lucroLiquido = entradasEfetivas - saidasEfetivas
 
-    // Imposto Simples Nacional considerando a forma de pagamento de cada venda do mês
-    // Se Centralizada: 6% sobre o recebido. Se Separada: 6% sobre a parte da imobiliária (50%).
-    let impostoEstimado = 0
-    mVendas.forEach((v) => {
-      const sit = v.situacao_recebimento || 'Recebido'
-      const baseRec = sit === 'Recebido' ? v.valor_comissao : v.valor_recebido || 0
-      const hasCaptador = Boolean((v.captadores && v.captadores.length > 0) || v.captador)
-      const pctCorr = hasCaptador ? 40 : 50
-      const pctCapt = hasCaptador ? 10 : 0
-      const pctParteImob = 100 - pctCorr - pctCapt
-      const baseImob = (baseRec * pctParteImob) / 100
-
-      if (v.forma_pagamento === 'Separada') {
-        impostoEstimado += (baseImob * 6) / 100
-      } else {
-        impostoEstimado += (baseRec * 6) / 100
-      }
-    })
-
-    // Caso não haja vendas diretas cadastradas mas haja entradas avulsas
+    // Caso não haja vendas cadastradas no mês mas haja entradas avulsas
     if (mVendas.length === 0 && entradasEfetivas > 0) {
       impostoEstimado = entradasEfetivas * 0.06
     }

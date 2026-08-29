@@ -29,6 +29,7 @@ import {
   SituacaoRecebimento,
   FormaPagamento,
 } from '@/types'
+import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
@@ -189,30 +190,35 @@ export default function Vendas() {
   const pctCorrConfig = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImobConfig
   const pctCaptTotalConfig = hasCaptador ? (config?.percentual_captador ?? 10) : 0
   const pctPorCaptador = numCaptadores > 0 ? pctCaptTotalConfig / numCaptadores : 0
-  const pctImpostoConfig = 6 // Alíquota do Simples Nacional (6%)
 
-  // Valores calculados sobre a base recebida
-  const valCorr = (valorBaseCalculo * pctCorrConfig) / 100
-  const valCaptTotal = hasCaptador ? (valorBaseCalculo * pctCaptTotalConfig) / 100 : 0
-  const valPorCaptador = numCaptadores > 0 ? valCaptTotal / numCaptadores : 0
+  // Cálculo ao vivo com o helper centralizado garantindo que alterne imediatamente entre Centralizada e Separada
+  const divisaoAoVivo = useMemo(() => {
+    return calcularDivisaoComissao({
+      valorBase: valorBaseCalculo,
+      formaPagamento: formFormaPagamento,
+      temCaptador: hasCaptador,
+      numCaptadores,
+      pctImobConfig,
+      pctCorrConfig,
+      pctCaptConfig: pctCaptTotalConfig,
+      aliquotaImposto: 6,
+    })
+  }, [
+    valorBaseCalculo,
+    formFormaPagamento,
+    hasCaptador,
+    numCaptadores,
+    pctImobConfig,
+    pctCorrConfig,
+    pctCaptTotalConfig,
+  ])
 
-  // Parte da imobiliária (ex: 50% ou restante)
-  const pctParteImob = 100 - pctCorrConfig - pctCaptTotalConfig
-  const valBaseImobiliaria = (valorBaseCalculo * pctParteImob) / 100
-
-  // Imposto conforme forma de pagamento:
-  // Centralizada: 6% sobre o valor TOTAL recebido
-  // Separada: 6% APENAS sobre a parte da imobiliária
-  const valImposto =
-    formFormaPagamento === 'Separada'
-      ? (valBaseImobiliaria * pctImpostoConfig) / 100
-      : (valorBaseCalculo * pctImpostoConfig) / 100
-
-  // Líquido Imobiliária:
-  // Na Centralizada: Recebido total - Repasse Corretor - Repasse Captador - Imposto (6% total) = 44% no padrão (ex: 8.800 de 20.000)
-  // Na Separada: Parte Imob (50%) - Imposto (6% sobre 50% = 3%) = 47% do total (ou 50% - 6% da parte imob)
-  const valImobLiquido = valorBaseCalculo - valCorr - valCaptTotal - valImposto
-  const valImobBruto = (valorBaseCalculo * pctImobConfig) / 100
+  const valCorr = divisaoAoVivo.valorCorretor
+  const valCaptTotal = divisaoAoVivo.valorCaptadorTotal
+  const valPorCaptador = divisaoAoVivo.valorPorCaptador
+  const valImposto = divisaoAoVivo.valorImposto
+  const valImobLiquido = divisaoAoVivo.valorImobiliariaLiquido
+  const valImobBruto = divisaoAoVivo.valorImobiliariaBruto
 
   // Auxiliar para obter a lista de corretores captadores de uma venda
   const getCaptadoresVenda = (v: Venda): Corretor[] => {
@@ -425,8 +431,8 @@ export default function Vendas() {
     if (forma === 'Separada') {
       return (
         <span
-          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-purple-500/15 text-purple-300 border border-purple-500/30"
-          title="Cada parte recebe direto na sua conta. Imposto de 6% incide apenas sobre a parte da imobiliária."
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
+          title="Separada: Cada parte recebe direto do cliente. Corretor e Captador recebem integral. Imposto de 6% incide apenas sobre a parte da imobiliária."
         >
           Separada
         </span>
@@ -435,7 +441,7 @@ export default function Vendas() {
     return (
       <span
         className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/30"
-        title="Cliente paga tudo na conta da imobiliária. Imposto de 6% sobre o valor total."
+        title="Centralizada: Cliente paga tudo na conta da imobiliária. Desconta 6% de imposto sobre o valor total e divide o restante."
       >
         Centralizada
       </span>
@@ -934,12 +940,13 @@ export default function Vendas() {
                         Centralizada
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-red-500/20 text-red-300">
-                        Imposto 6% s/ Total
+                        Imposto 6% s/ Total (Divide Líquido)
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Cliente paga tudo na conta da imobiliária. A imobiliária desconta 6% de
-                      imposto sobre o valor total e depois paga corretor e captador.
+                      Cliente paga tudo na conta da imobiliária. Tira-se 6% de imposto sobre o valor
+                      total e o que sobra (94%) é dividido entre Imobiliária, Corretor e
+                      Captador(es).
                     </p>
                   </div>
 
@@ -959,12 +966,12 @@ export default function Vendas() {
                         Separada
                       </span>
                       <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-emerald-500/20 text-emerald-300">
-                        Imposto 6% s/ Parte Imob
+                        Corretor Integral + 6% s/ Imob
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-400 leading-relaxed">
-                      Cada parte recebe direto na sua própria conta. Imposto de 6% incide apenas
-                      sobre a parte da imobiliária.
+                      Corretor (40%) e Captador (10%) recebem integral. A imobiliária tira 6% de
+                      imposto apenas sobre a parte dela (50%), e o resto é lucro.
                     </p>
                   </div>
                 </div>
@@ -1053,7 +1060,17 @@ export default function Vendas() {
                 <div className="flex items-center gap-2">
                   <PieChartIcon className="w-4 h-4 text-emerald-400" />
                   <span className="font-bold text-slate-200 uppercase tracking-wider text-[11px]">
-                    Prévia da Divisão ao Vivo (Base: {formatCurrency(valorBaseCalculo)})
+                    Prévia da Divisão ao Vivo •{' '}
+                    <span
+                      className={
+                        formFormaPagamento === 'Separada'
+                          ? 'text-emerald-400 font-extrabold'
+                          : 'text-blue-400 font-extrabold'
+                      }
+                    >
+                      {formFormaPagamento.toUpperCase()}
+                    </span>{' '}
+                    (Base: {formatCurrency(valorBaseCalculo)})
                   </span>
                 </div>
                 <div className="text-right">
@@ -1064,6 +1081,30 @@ export default function Vendas() {
                 </div>
               </div>
 
+              {/* Informação contextual do cálculo */}
+              <div className="text-[11px] text-slate-300 bg-[#121722] p-2 rounded-lg border border-[#232A3B]">
+                {formFormaPagamento === 'Centralizada' ? (
+                  <span>
+                    <strong>Regra Centralizada:</strong> Imposto de 6% ({formatCurrency(valImposto)}
+                    ) descontado do total de {formatCurrency(valorBaseCalculo)} → Base líquida a
+                    dividir:{' '}
+                    <strong className="text-white">
+                      {formatCurrency(divisaoAoVivo.baseCalculoPartes)}
+                    </strong>{' '}
+                    (50% Imob, 40% Corretor, 10% Captador).
+                  </span>
+                ) : (
+                  <span>
+                    <strong>Regra Separada:</strong> Corretor recebe{' '}
+                    <strong className="text-blue-300">{formatCurrency(valCorr)}</strong> (40%
+                    integral) e Captador recebe{' '}
+                    <strong className="text-amber-300">{formatCurrency(valCaptTotal)}</strong> (10%
+                    integral). Imposto de 6% ({formatCurrency(valImposto)}) incide apenas sobre a
+                    parte da imobiliária ({formatCurrency(valImobBruto)}).
+                  </span>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-2.5 text-center text-xs">
                 {/* Imobiliária Líquido */}
                 <div className="p-2.5 rounded-xl bg-[#121722] border border-[#E63946]/30 text-left relative overflow-hidden">
@@ -1072,16 +1113,17 @@ export default function Vendas() {
                       Imobiliária (Líquido)
                     </p>
                     <span className="text-[9px] px-1 rounded bg-red-500/20 text-red-300 font-bold">
-                      {valorBaseCalculo > 0
-                        ? ((valImobLiquido / valorBaseCalculo) * 100).toFixed(1)
-                        : 0}
-                      %
+                      {divisaoAoVivo.pctImobiliariaLiquidoReal.toFixed(1)}%
                     </span>
                   </div>
                   <p className="font-black text-white text-base mt-1">
                     {formatCurrency(valImobLiquido)}
                   </p>
-                  <p className="text-[9px] text-slate-400 mt-0.5">Livre após repasses & imposto</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    {formFormaPagamento === 'Centralizada'
+                      ? '50% s/ base líquida'
+                      : '50% bruto - 6% imposto'}
+                  </p>
                 </div>
 
                 {/* Corretor Fechador */}
@@ -1095,7 +1137,11 @@ export default function Vendas() {
                     </span>
                   </div>
                   <p className="font-black text-white text-base mt-1">{formatCurrency(valCorr)}</p>
-                  <p className="text-[9px] text-slate-400 mt-0.5">Repasse automático</p>
+                  <p className="text-[9px] text-slate-400 mt-0.5">
+                    {formFormaPagamento === 'Centralizada'
+                      ? '40% s/ base líquida'
+                      : '40% integral (s/ imposto)'}
+                  </p>
                 </div>
 
                 {/* Captador(es) */}
@@ -1116,7 +1162,9 @@ export default function Vendas() {
                   <p className="text-[9px] text-slate-400 mt-0.5">
                     {numCaptadores > 1
                       ? `${formatCurrency(valPorCaptador)} cada (${pctPorCaptador}%)`
-                      : 'Repasse captação'}
+                      : formFormaPagamento === 'Centralizada'
+                        ? '10% s/ base líquida'
+                        : '10% integral (s/ imposto)'}
                   </p>
                 </div>
 
@@ -1135,8 +1183,8 @@ export default function Vendas() {
                   </p>
                   <p className="text-[9px] text-slate-400 mt-0.5">
                     {formFormaPagamento === 'Separada'
-                      ? '6% s/ parte Imob (R$ ' + formatCurrency(valBaseImobiliaria) + ')'
-                      : '6% s/ valor total'}
+                      ? '6% s/ parte Imob (' + formatCurrency(valImobBruto) + ')'
+                      : '6% s/ total recebido'}
                   </p>
                 </div>
               </div>

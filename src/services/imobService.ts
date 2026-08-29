@@ -13,6 +13,7 @@ import {
   FormaPagamento,
   SituacaoRecebimento,
 } from '@/types'
+import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
 
 // User Management Service
 export const UserService = {
@@ -360,23 +361,23 @@ export const VendaService = {
     const pctImob = config?.percentual_imobiliaria ?? 50
     const pctCorr = hasCaptador ? (config?.percentual_corretor ?? 40) : 100 - pctImob
     const pctCaptTotal = hasCaptador ? (config?.percentual_captador ?? 10) : 0
-    const pctImposto = 6
 
-    // Repasses proporcionais
-    const valCorr = (valorBase * pctCorr) / 100
-    const valCaptTotal = hasCaptador ? (valorBase * pctCaptTotal) / 100 : 0
-    const valImobTotal = (valorBase * pctImob) / 100
+    // Usar cálculo centralizado e padronizado
+    const calc = calcularDivisaoComissao({
+      valorBase,
+      formaPagamento,
+      temCaptador: hasCaptador,
+      numCaptadores,
+      pctImobConfig: pctImob,
+      pctCorrConfig: pctCorr,
+      pctCaptConfig: pctCaptTotal,
+      aliquotaImposto: 6,
+    })
 
-    // Cálculo do imposto conforme forma de pagamento:
-    // Centralizada: imposto incide sobre 100% da comissão recebida
-    // Separada: imposto incide apenas sobre a parte da imobiliária (ex: 44% no padrão de 50%-6%)
-    const pctParteImobiliaria = 100 - pctCorr - pctCaptTotal // tipicamente 50% ou 100 - 40 - 10 = 50% (ou 44% se base imob)
-    // No texto do usuário: "Separada: cada parte recebe direto do cliente na sua própria conta. Imposto de 6% incide apenas sobre a parte da imobiliária."
-    // A base da imobiliária é (valorBase * pctParteImobiliaria / 100). Imposto = baseImob * 6%.
-    const valImposto =
-      formaPagamento === 'Separada'
-        ? ((valorBase * pctParteImobiliaria) / 100) * (pctImposto / 100)
-        : (valorBase * pctImposto) / 100
+    const valCorr = calc.valorCorretor
+    const valCaptTotal = calc.valorCaptadorTotal
+    const valImobTotal = calc.valorImobiliariaLiquido
+    const valImposto = calc.valorImposto
 
     const dataIso = dataVenda || new Date().toISOString()
     const prefixoDesc = ehComplementar
@@ -417,12 +418,14 @@ export const VendaService = {
       user: userId,
     })
 
-    // 2. Gerar Saída Pendente para Corretor (40% ou configurado)
-    // Nas duas formas, a imobiliária é quem paga corretor e captador
+    // 2. Gerar Saída Pendente para Corretor (40% sobre base líquida na Centralizada ou integral na Separada)
+    // Nas duas formas, a imobiliária gera saídas pendentes de corretor e captador(es)
     if (valCorr > 0) {
+      const detalheForma =
+        formaPagamento === 'Centralizada' ? ' [Centralizada pós-imposto]' : ' [Separada]'
       await pb.collection('transacoes').create({
         tipo: 'saida',
-        descricao: `Repasse comissão corretor (${corretorNome}) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+        descricao: `Repasse comissão corretor (${corretorNome})${detalheForma} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
         categoria: 'repasse',
         valor: valCorr,
         data: dataIso,
@@ -432,18 +435,20 @@ export const VendaService = {
       })
     }
 
-    // 3. Gerar Saída Pendente para cada Captador (dividido igualmente)
+    // 3. Gerar Saída Pendente para cada Captador (dividido igualmente entre eles)
     if (hasCaptador && valCaptTotal > 0) {
-      const valPorCaptador = valCaptTotal / numCaptadores
-      const pctPorCaptador = pctCaptTotal / numCaptadores
+      const valPorCaptador = calc.valorPorCaptador
+      const pctPorCaptador = calc.pctPorCaptador
+      const detalheForma =
+        formaPagamento === 'Centralizada' ? ' [Centralizada pós-imposto]' : ' [Separada]'
 
       for (const cId of captadores) {
         const nomeCapt = captadoresNomes[cId] || 'Captador'
-        const descDivisao = numCaptadores > 1 ? ` (${pctPorCaptador}%)` : ''
+        const descDivisao = numCaptadores > 1 ? ` (${pctPorCaptador}% cada)` : ''
 
         await pb.collection('transacoes').create({
           tipo: 'saida',
-          descricao: `Repasse comissão captador (${nomeCapt})${descDivisao} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+          descricao: `Repasse comissão captador (${nomeCapt})${descDivisao}${detalheForma} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
           categoria: 'repasse',
           valor: valPorCaptador,
           data: dataIso,
@@ -474,11 +479,11 @@ export const VendaService = {
     }
 
     // 5. Registrar também em comissoes para histórico e relatórios de comissão
-    // Imobiliária
+    // Imobiliária (registra valor líquido que restou para a imobiliária)
     await pb.collection('comissoes').create({
       venda: vendaId,
       parte: 'imobiliaria',
-      percentual: pctImob,
+      percentual: calc.pctImobiliaria,
       valor: valImobTotal,
       status: 'recebida',
       data_recebimento: dataIso,
@@ -491,7 +496,7 @@ export const VendaService = {
         venda: vendaId,
         parte: 'corretor',
         corretor: corretorId,
-        percentual: pctCorr,
+        percentual: calc.pctCorretor,
         valor: valCorr,
         status: 'pendente',
         user: userId,
@@ -500,8 +505,8 @@ export const VendaService = {
 
     // Captadores (lançamento individual para cada corretor captador)
     if (hasCaptador && valCaptTotal > 0) {
-      const valPorCaptador = valCaptTotal / numCaptadores
-      const pctPorCaptador = pctCaptTotal / numCaptadores
+      const valPorCaptador = calc.valorPorCaptador
+      const pctPorCaptador = calc.pctPorCaptador
 
       for (const cId of captadores) {
         await pb.collection('comissoes').create({

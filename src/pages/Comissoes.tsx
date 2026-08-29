@@ -625,9 +625,14 @@ export default function Comissoes() {
                     <span
                       className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
                         c.expand?.venda?.forma_pagamento === 'Separada'
-                          ? 'bg-purple-500/15 text-purple-300 border border-purple-500/25'
+                          ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
                           : 'bg-blue-500/15 text-blue-300 border border-blue-500/25'
                       }`}
+                      title={
+                        c.expand?.venda?.forma_pagamento === 'Separada'
+                          ? 'Separada: Corretor/Captador recebem integral sem desconto de imposto'
+                          : 'Centralizada: Divisão efetuada sobre base líquida após 6% de imposto'
+                      }
                     >
                       {c.expand?.venda?.forma_pagamento || 'Centralizada'}
                     </span>
