@@ -5,6 +5,8 @@ import {
   Comissao,
   MetaVGV,
   Transacao,
+  TransacaoTipo,
+  TransacaoCategoria,
   Despesa,
   DespesaCategoria,
   NotaFiscal,
@@ -738,6 +740,61 @@ export const TransacaoService = {
   },
   async create(data: Partial<Transacao>): Promise<Transacao> {
     return await pb.collection('transacoes').create<Transacao>(data)
+  },
+  async createRecorrente(data: {
+    tipo: TransacaoTipo
+    descricao: string
+    categoria: TransacaoCategoria
+    valor: number
+    data: string // YYYY-MM-DD or ISO
+    data_competencia_iso?: string // ISO string of starting competence
+    data_vencimento?: string // YYYY-MM-DD or ISO
+    recorrencia_meses: number
+    user: string
+  }): Promise<Transacao[]> {
+    const totalMeses = Math.max(1, Math.floor(Number(data.recorrencia_meses) || 1))
+    const baseDescricao = data.descricao?.trim() || 'Transação'
+    const valor = Number(data.valor)
+
+    const baseRegistroDate = data.data.includes('T')
+      ? new Date(data.data)
+      : new Date(data.data + 'T12:00:00Z')
+
+    const baseVencDate = data.data_vencimento
+      ? data.data_vencimento.includes('T')
+        ? new Date(data.data_vencimento)
+        : new Date(data.data_vencimento + 'T12:00:00Z')
+      : null
+
+    const baseCompDate = data.data_competencia_iso ? new Date(data.data_competencia_iso) : null
+
+    const createdRecords: Transacao[] = []
+
+    for (let i = 0; i < totalMeses; i++) {
+      const registroDate = i === 0 ? baseRegistroDate : addMonthsToDate(baseRegistroDate, i)
+      const vencDate = baseVencDate ? addMonthsToDate(baseVencDate, i) : undefined
+      const compDate = baseCompDate ? addMonthsToDate(baseCompDate, i) : undefined
+
+      const parcelaSuffix = totalMeses > 1 ? ` (${i + 1}/${totalMeses})` : ''
+      const descFinal = `${baseDescricao}${parcelaSuffix}`
+
+      const payload: Partial<Transacao> = {
+        tipo: data.tipo,
+        descricao: descFinal,
+        categoria: data.categoria,
+        valor,
+        data: registroDate.toISOString(),
+        data_competencia: compDate ? compDate.toISOString() : undefined,
+        data_vencimento: vencDate ? vencDate.toISOString() : undefined,
+        consolidado: false,
+        user: data.user,
+      }
+
+      const rec = await this.create(payload)
+      createdRecords.push(rec)
+    }
+
+    return createdRecords
   },
   async update(id: string, data: Partial<Transacao>): Promise<Transacao> {
     return await pb.collection('transacoes').update<Transacao>(id, data)

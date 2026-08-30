@@ -74,6 +74,7 @@ export default function FluxoCaixa() {
   const [tData, setTData] = useState(new Date().toISOString().split('T')[0])
   const [tDataCompetencia, setTDataCompetencia] = useState('')
   const [tDataVencimento, setTDataVencimento] = useState('')
+  const [tRecorrenciaMeses, setTRecorrenciaMeses] = useState<number>(1)
   const [savingTransacao, setSavingTransacao] = useState(false)
 
   // Modal Nova Despesa
@@ -247,6 +248,7 @@ export default function FluxoCaixa() {
     setTData(new Date().toISOString().split('T')[0])
     setTDataCompetencia('')
     setTDataVencimento('')
+    setTRecorrenciaMeses(1)
     setIsTransacaoModalOpen(true)
   }
 
@@ -262,27 +264,46 @@ export default function FluxoCaixa() {
     try {
       const competenciaIso =
         tTipo === 'saida' ? buildCompetenciaIso(tDataCompetencia, tData) : undefined
+      const mesesRecorrencia =
+        tTipo === 'saida' ? Math.max(1, Math.floor(Number(tRecorrenciaMeses) || 1)) : 1
 
-      await TransacaoService.create({
-        tipo: tTipo,
-        descricao: tDescricao,
-        categoria: tCategoria,
-        valor: Number(tValor),
-        data: new Date(tData + 'T12:00:00Z').toISOString(),
-        data_competencia: competenciaIso,
-        data_vencimento:
-          tTipo === 'saida' && tDataVencimento
-            ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
-            : undefined,
-        consolidado: false,
-        user: user.id,
-      })
-      toast.success('Transação registrada com sucesso!')
+      if (tTipo === 'saida' && mesesRecorrencia > 1) {
+        const created = await TransacaoService.createRecorrente({
+          tipo: 'saida',
+          descricao: tDescricao.trim(),
+          categoria: tCategoria,
+          valor: Number(tValor),
+          data: tData,
+          data_competencia_iso: competenciaIso,
+          data_vencimento: tDataVencimento || undefined,
+          recorrencia_meses: mesesRecorrencia,
+          user: user.id,
+        })
+        toast.success(`${created.length} parcelas de transação geradas com sucesso!`)
+      } else {
+        await TransacaoService.create({
+          tipo: tTipo,
+          descricao: tDescricao.trim(),
+          categoria: tCategoria,
+          valor: Number(tValor),
+          data: new Date(tData + 'T12:00:00Z').toISOString(),
+          data_competencia: competenciaIso,
+          data_vencimento:
+            tTipo === 'saida' && tDataVencimento
+              ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
+              : undefined,
+          consolidado: false,
+          user: user.id,
+        })
+        toast.success('Transação registrada com sucesso!')
+      }
+
       setIsTransacaoModalOpen(false)
       setTDescricao('')
       setTValor('')
       setTDataCompetencia('')
       setTDataVencimento('')
+      setTRecorrenciaMeses(1)
       loadData()
     } catch (err) {
       console.error(err)
@@ -953,41 +974,63 @@ export default function FluxoCaixa() {
             </div>
 
             {tTipo === 'saida' && (
-              <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Data de Competência
-                  </label>
-                  <p className="text-[10px] text-slate-400 mb-1.5">
-                    Mês em que o gasto ocorreu de fato
-                  </p>
-                  <select
-                    value={tDataCompetencia}
-                    onChange={(e) => setTDataCompetencia(e.target.value)}
-                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
-                  >
-                    <option value="">Selecione o mês (opcional)</option>
-                    {MESES_NOMES.map((nome, idx) => (
-                      <option key={idx + 1} value={String(idx + 1)}>
-                        {nome}
-                      </option>
-                    ))}
-                  </select>
+              <div className="space-y-3">
+                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Data de Competência
+                    </label>
+                    <p className="text-[10px] text-slate-400 mb-1.5">
+                      Mês em que o gasto ocorreu de fato
+                    </p>
+                    <select
+                      value={tDataCompetencia}
+                      onChange={(e) => setTDataCompetencia(e.target.value)}
+                      className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
+                    >
+                      <option value="">Selecione o mês (opcional)</option>
+                      {MESES_NOMES.map((nome, idx) => (
+                        <option key={idx + 1} value={String(idx + 1)}>
+                          {nome}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-300 mb-1">
+                      Data de Vencimento
+                    </label>
+                    <p className="text-[10px] text-slate-400 mb-1.5">
+                      Quando a despesa vence/precisa ser paga
+                    </p>
+                    <Input
+                      type="date"
+                      value={tDataVencimento}
+                      onChange={(e) => setTDataVencimento(e.target.value)}
+                      className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                    />
+                  </div>
                 </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Data de Vencimento
+                    RECORRÊNCIA (MESES)
                   </label>
-                  <p className="text-[10px] text-slate-400 mb-1.5">
-                    Quando a despesa vence/precisa ser paga
-                  </p>
                   <Input
-                    type="date"
-                    value={tDataVencimento}
-                    onChange={(e) => setTDataVencimento(e.target.value)}
-                    className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={tRecorrenciaMeses}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value, 10)
+                      setTRecorrenciaMeses(isNaN(val) || val < 1 ? 1 : val)
+                    }}
+                    className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
                   />
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Use mais de 1 para criar lançamentos mensais automáticos (ex: 12x)
+                  </p>
                 </div>
               </div>
             )}
