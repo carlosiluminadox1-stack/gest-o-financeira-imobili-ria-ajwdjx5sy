@@ -106,6 +106,8 @@ export type TransacaoCategoria =
   | 'manutencao'
   | 'outros'
 
+export type TransacaoStatus = 'Pendente' | 'Pago' | 'Cancelado' | string
+
 export interface Transacao {
   id: string
   tipo: TransacaoTipo
@@ -116,7 +118,8 @@ export interface Transacao {
   data_competencia?: string
   data_vencimento?: string
   consolidado?: boolean
-  status?: string
+  status?: TransacaoStatus
+  observacoes?: string
   venda?: string
   comissao?: string
   user: string
@@ -137,6 +140,7 @@ export type DespesaCategoria =
   | 'outros'
 
 export type DespesaFrequencia = 'mensal' | 'trimestral' | 'semestral' | 'anual'
+export type DespesaStatus = 'Pendente' | 'Pago' | 'Cancelado'
 
 export interface Despesa {
   id: string
@@ -149,6 +153,11 @@ export interface Despesa {
   recorrente: boolean
   frequencia?: DespesaFrequencia
   ativa: boolean
+  status?: DespesaStatus
+  observacoes?: string
+  recorrencia_meses?: number
+  parcela_atual?: number
+  total_parcelas?: number
   proxima_data?: string
   user: string
   created: string

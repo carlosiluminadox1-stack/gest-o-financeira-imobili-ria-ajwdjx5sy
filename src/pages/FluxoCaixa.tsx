@@ -85,7 +85,10 @@ export default function FluxoCaixa() {
   const [dData, setDData] = useState(new Date().toISOString().split('T')[0])
   const [dDataCompetencia, setDDataCompetencia] = useState('')
   const [dDataVencimento, setDDataVencimento] = useState('')
-  const [dRecorrente, setDRecorrente] = useState(true)
+  const [dStatus, setDStatus] = useState<'Pendente' | 'Pago' | 'Cancelado'>('Pendente')
+  const [dRecorrenciaMeses, setDRecorrenciaMeses] = useState<number>(1)
+  const [dObservacoes, setDObservacoes] = useState('')
+  const [dRecorrente, setDRecorrente] = useState(false)
   const [dFrequencia, setDFrequencia] = useState<DespesaFrequencia>('mensal')
   const [dAtiva, setDAtiva] = useState(true)
   const [savingDespesa, setSavingDespesa] = useState(false)
@@ -210,13 +213,29 @@ export default function FluxoCaixa() {
     return new Date(Date.UTC(ano, mesIdx, 1, 12, 0, 0)).toISOString()
   }
 
-  // Formata a exibição da competência na tabela como nome do mês (ex: Janeiro)
+  // Formata a exibição da competência na tabela como nome do mês e ano (ex: agosto de 2026)
   const formatCompetencia = (dateStr?: string | null): string => {
     if (!dateStr) return '—'
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) return '—'
     const mesIdx = d.getUTCMonth()
-    return MESES_NOMES[mesIdx] || '—'
+    const ano = d.getUTCFullYear()
+    const mesNome = MESES_NOMES[mesIdx] ? MESES_NOMES[mesIdx].toLowerCase() : ''
+    return mesNome ? `${mesNome} de ${ano}` : '—'
+  }
+
+  // Obter formato YYYY-MM a partir de data ISO ou retornar YYYY-MM atual
+  const getCompetenciaMesAno = (dateStr?: string | null): string => {
+    if (!dateStr) {
+      const now = new Date()
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    }
+    const d = new Date(dateStr)
+    if (isNaN(d.getTime())) {
+      const now = new Date()
+      return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+    }
+    return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
   }
 
   // Reset do Modal de Transação Manual
@@ -276,14 +295,18 @@ export default function FluxoCaixa() {
   // Nova / Editar Despesa
   const handleOpenCreateDespesa = () => {
     const today = new Date().toISOString().split('T')[0]
+    const currentMonth = today.slice(0, 7) // YYYY-MM
     setEditingDespesa(null)
     setDDescricao('')
-    setDCategoria('aluguel')
+    setDCategoria('outros')
     setDValor('')
     setDData(today)
-    setDDataCompetencia('')
+    setDDataCompetencia(currentMonth)
     setDDataVencimento(today)
-    setDRecorrente(true)
+    setDStatus('Pendente')
+    setDRecorrenciaMeses(1)
+    setDObservacoes('')
+    setDRecorrente(false)
     setDFrequencia('mensal')
     setDAtiva(true)
     setIsDespesaModalOpen(true)
@@ -292,50 +315,116 @@ export default function FluxoCaixa() {
   const handleOpenEditDespesa = (d: Despesa) => {
     setEditingDespesa(d)
     setDDescricao(d.descricao)
-    setDCategoria(d.categoria)
+    setDCategoria(d.categoria || 'outros')
     setDValor(d.valor)
-    setDData(new Date(d.data).toISOString().split('T')[0])
-    setDDataCompetencia(getMesFromDate(d.data_competencia))
+    setDData(
+      d.data
+        ? new Date(d.data).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0],
+    )
+    setDDataCompetencia(getCompetenciaMesAno(d.data_competencia || d.data))
     setDDataVencimento(
       d.data_vencimento ? new Date(d.data_vencimento).toISOString().split('T')[0] : '',
     )
+    setDStatus(d.status || 'Pendente')
+    setDRecorrenciaMeses(1)
+    setDObservacoes(d.observacoes || '')
     setDRecorrente(d.recorrente)
     setDFrequencia(d.frequencia || 'mensal')
-    setDAtiva(d.ativa)
+    setDAtiva(d.ativa !== false)
     setIsDespesaModalOpen(true)
   }
 
   const handleSaveDespesa = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!dDescricao.trim() || !dValor || Number(dValor) <= 0 || !user) {
-      toast.error('Preencha os campos obrigatórios.')
+    if (!dValor || Number(dValor) <= 0 || !user) {
+      toast.error('Informe um valor válido para a despesa.')
+      return
+    }
+    if (!dDataVencimento) {
+      toast.error('Informe a data de vencimento.')
       return
     }
 
     setSavingDespesa(true)
     try {
-      const competenciaIso = buildCompetenciaIso(dDataCompetencia, dData)
-
-      const payload = {
-        descricao: dDescricao,
-        categoria: dCategoria,
-        valor: Number(dValor),
-        data: new Date(dData + 'T12:00:00Z').toISOString(),
-        data_competencia: competenciaIso,
-        data_vencimento: dDataVencimento
-          ? new Date(dDataVencimento + 'T12:00:00Z').toISOString()
-          : undefined,
-        recorrente: dRecorrente,
-        frequencia: dRecorrente ? dFrequencia : undefined,
-        ativa: dAtiva,
-      }
-
       if (editingDespesa) {
+        let compIso: string | undefined = undefined
+        if (dDataCompetencia) {
+          const [anoStr, mesStr] = dDataCompetencia.split('-')
+          compIso = new Date(
+            Date.UTC(parseInt(anoStr, 10), parseInt(mesStr, 10) - 1, 1, 12, 0, 0),
+          ).toISOString()
+        }
+
+        const payload = {
+          descricao: dDescricao.trim() || 'Despesa',
+          categoria: dCategoria,
+          valor: Number(dValor),
+          data: new Date(dData + 'T12:00:00Z').toISOString(),
+          data_competencia: compIso,
+          data_vencimento: new Date(dDataVencimento + 'T12:00:00Z').toISOString(),
+          status: dStatus,
+          observacoes: dObservacoes.trim(),
+          recorrente: dRecorrente,
+          frequencia: dRecorrente ? dFrequencia : undefined,
+          ativa: dAtiva,
+        }
+
         await DespesaService.update(editingDespesa.id, payload)
         toast.success('Despesa atualizada com sucesso!')
       } else {
-        await DespesaService.create(payload, user.id)
-        toast.success('Despesa cadastrada e transação de saída gerada!')
+        const mesesRecorrencia = Math.max(1, Math.floor(Number(dRecorrenciaMeses) || 1))
+
+        if (mesesRecorrencia > 1) {
+          const created = await DespesaService.createRecorrente(
+            {
+              descricao: dDescricao.trim() || undefined,
+              categoria: dCategoria,
+              valor: Number(dValor),
+              data_registro: dData,
+              data_competencia_mes: dDataCompetencia,
+              data_vencimento: dDataVencimento,
+              status: dStatus,
+              recorrencia_meses: mesesRecorrencia,
+              observacoes: dObservacoes.trim(),
+            },
+            user.id,
+          )
+          toast.success(`${created.length} parcelas de despesa geradas com sucesso!`)
+        } else {
+          let compIso: string | undefined = undefined
+          if (dDataCompetencia) {
+            const [anoStr, mesStr] = dDataCompetencia.split('-')
+            compIso = new Date(
+              Date.UTC(parseInt(anoStr, 10), parseInt(mesStr, 10) - 1, 1, 12, 0, 0),
+            ).toISOString()
+          } else {
+            const venc = new Date(dDataVencimento + 'T12:00:00Z')
+            compIso = new Date(
+              Date.UTC(venc.getFullYear(), venc.getMonth(), 1, 12, 0, 0),
+            ).toISOString()
+          }
+
+          const descFinal = dDescricao.trim() || 'Despesa'
+
+          await DespesaService.create(
+            {
+              descricao: descFinal,
+              categoria: dCategoria,
+              valor: Number(dValor),
+              data: new Date(dData + 'T12:00:00Z').toISOString(),
+              data_competencia: compIso,
+              data_vencimento: new Date(dDataVencimento + 'T12:00:00Z').toISOString(),
+              status: dStatus,
+              observacoes: dObservacoes.trim(),
+              recorrente: false,
+              ativa: true,
+            },
+            user.id,
+          )
+          toast.success('Despesa cadastrada e transação de saída gerada!')
+        }
       }
       setIsDespesaModalOpen(false)
       loadData()
@@ -708,15 +797,17 @@ export default function FluxoCaixa() {
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        {d.ativa ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400">
-                            Ativa
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-500/15 text-slate-400">
-                            Inativa
-                          </span>
-                        )}
+                        <span
+                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
+                            d.status === 'Pago'
+                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                              : d.status === 'Cancelado'
+                                ? 'bg-slate-500/15 text-slate-400 border border-slate-500/20'
+                                : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                          }`}
+                        >
+                          {d.status || (d.ativa ? 'Pendente' : 'Inativa')}
+                        </span>
                       </td>
                       <td className="py-3.5 px-4 text-right font-bold text-red-400 text-sm tabular-nums whitespace-nowrap">
                         {formatCurrency(d.valor)}
@@ -928,163 +1019,169 @@ export default function FluxoCaixa() {
 
       {/* Modal Nova / Editar Despesa */}
       <Dialog open={isDespesaModalOpen} onOpenChange={setIsDespesaModalOpen}>
-        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-md">
-          <DialogHeader>
+        <DialogContent className="bg-[#111216] border-[#22252C] text-slate-100 max-w-lg p-6 rounded-2xl shadow-2xl">
+          <DialogHeader className="space-y-1">
             <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
               <DollarSign className="w-5 h-5 text-[#E63946]" />
               {editingDespesa ? 'Editar Despesa' : 'Cadastrar Nova Despesa'}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-400">
-              Despesas ativas e recorrentes geram transações financeiras automaticamente.
+              {editingDespesa
+                ? 'Atualize os dados do registro de despesa.'
+                : 'Preencha os dados da saída financeira para controle e recorrência.'}
             </DialogDescription>
           </DialogHeader>
 
           <form onSubmit={handleSaveDespesa} className="space-y-4 pt-2">
+            {/* Campo opcional de Descrição / Título do Imóvel ou Fornecedor */}
             <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Descrição da Despesa *
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                Descrição / Título
               </label>
               <Input
                 type="text"
                 placeholder="Ex: Aluguel da Sede, Google Ads, Sistema CRM"
                 value={dDescricao}
                 onChange={(e) => setDDescricao(e.target.value)}
-                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                className="bg-[#1A1C23] border-[#2A2E39] focus:border-[#E63946] text-xs h-10 text-slate-100 rounded-lg placeholder:text-slate-500"
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            {/* Linha 1: VALOR * e VENCIMENTO * */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">Categoria</label>
-                <select
-                  value={dCategoria}
-                  onChange={(e) => setDCategoria(e.target.value as DespesaCategoria)}
-                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
-                >
-                  <option value="aluguel">Aluguel</option>
-                  <option value="marketing">Marketing</option>
-                  <option value="salarios">Salários</option>
-                  <option value="utilidades">Utilidades</option>
-                  <option value="manutencao">Manutenção</option>
-                  <option value="outros">Outros</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Valor (R$) *
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  VALOR *
                 </label>
                 <Input
                   type="number"
-                  placeholder="Ex: 2500"
+                  step="0.01"
+                  min="0"
+                  placeholder="0,00"
                   value={dValor}
                   onChange={(e) => setDValor(e.target.value ? Number(e.target.value) : '')}
-                  className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                  required
+                  className="bg-[#1A1C23] border-[#2A2E39] focus:border-[#E63946] text-xs h-10 text-slate-100 rounded-lg placeholder:text-slate-500"
                 />
               </div>
-            </div>
-
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Data do Registro *
-              </label>
-              <Input
-                type="date"
-                value={dData}
-                onChange={(e) => setDData(e.target.value)}
-                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
-              <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Data de Competência
-                </label>
-                <p className="text-[10px] text-slate-400 mb-1.5">
-                  Mês em que o gasto ocorreu de fato
-                </p>
-                <select
-                  value={dDataCompetencia}
-                  onChange={(e) => setDDataCompetencia(e.target.value)}
-                  className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
-                >
-                  <option value="">Selecione o mês (opcional)</option>
-                  {MESES_NOMES.map((nome, idx) => (
-                    <option key={idx + 1} value={String(idx + 1)}>
-                      {nome}
-                    </option>
-                  ))}
-                </select>
-              </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Data de Vencimento
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  VENCIMENTO *
                 </label>
-                <p className="text-[10px] text-slate-400 mb-1.5">Quando vence / precisa ser paga</p>
                 <Input
                   type="date"
                   value={dDataVencimento}
                   onChange={(e) => setDDataVencimento(e.target.value)}
-                  className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                  required
+                  className="bg-[#1A1C23] border-[#2A2E39] focus:border-[#E63946] text-xs h-10 text-slate-100 rounded-lg"
                 />
               </div>
             </div>
 
-            <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-xs font-semibold text-slate-200">Despesa Recorrente</p>
-                  <p className="text-[11px] text-slate-400">Repetir cobrança automaticamente</p>
-                </div>
-                <Switch checked={dRecorrente} onCheckedChange={setDRecorrente} />
+            {/* Linha 2: COMPETÊNCIA * e CATEGORIA */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  COMPETÊNCIA *
+                </label>
+                <Input
+                  type="month"
+                  value={dDataCompetencia}
+                  onChange={(e) => setDDataCompetencia(e.target.value)}
+                  required
+                  className="bg-[#1A1C23] border-[#2A2E39] focus:border-[#E63946] text-xs h-10 text-slate-100 rounded-lg"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">Mês ao qual a despesa pertence</p>
               </div>
 
-              {dRecorrente && (
-                <div className="pt-2 border-t border-[#232A3B]">
-                  <label className="block text-xs font-semibold text-slate-300 mb-1">
-                    Frequência do Ciclo
-                  </label>
-                  <select
-                    value={dFrequencia}
-                    onChange={(e) => setDFrequencia(e.target.value as DespesaFrequencia)}
-                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
-                  >
-                    <option value="mensal">Mensal</option>
-                    <option value="trimestral">Trimestral</option>
-                    <option value="semestral">Semestral</option>
-                    <option value="anual">Anual</option>
-                  </select>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between pt-2 border-t border-[#232A3B]">
-                <div>
-                  <p className="text-xs font-semibold text-slate-200">Status Ativa</p>
-                  <p className="text-[11px] text-slate-400">
-                    Permitir processamento no cron diário
-                  </p>
-                </div>
-                <Switch checked={dAtiva} onCheckedChange={setDAtiva} />
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  CATEGORIA
+                </label>
+                <select
+                  value={dCategoria}
+                  onChange={(e) => setDCategoria(e.target.value as DespesaCategoria)}
+                  className="w-full bg-[#1A1C23] border border-[#2A2E39] focus:border-[#E63946] text-slate-100 text-xs rounded-lg h-10 px-3 outline-none"
+                >
+                  <option value="outros">Sem categoria / Outros</option>
+                  <option value="aluguel">Aluguel</option>
+                  <option value="marketing">Marketing</option>
+                  <option value="salarios">Salários</option>
+                  <option value="utilidades">Utilidades (Água/Luz/Net)</option>
+                  <option value="manutencao">Manutenção</option>
+                </select>
               </div>
             </div>
 
-            <DialogFooter className="pt-2">
+            {/* Linha 3: STATUS */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                STATUS
+              </label>
+              <select
+                value={dStatus}
+                onChange={(e) => setDStatus(e.target.value as 'Pendente' | 'Pago' | 'Cancelado')}
+                className="w-full bg-[#1A1C23] border border-[#2A2E39] focus:border-[#E63946] text-slate-100 text-xs rounded-lg h-10 px-3 outline-none"
+              >
+                <option value="Pendente">Pendente</option>
+                <option value="Pago">Pago</option>
+                <option value="Cancelado">Cancelado</option>
+              </select>
+            </div>
+
+            {/* Linha 4: RECORRÊNCIA (MESES) */}
+            {!editingDespesa && (
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                  RECORRÊNCIA (MESES)
+                </label>
+                <Input
+                  type="number"
+                  min="1"
+                  max="60"
+                  value={dRecorrenciaMeses}
+                  onChange={(e) => {
+                    const val = parseInt(e.target.value, 10)
+                    setDRecorrenciaMeses(isNaN(val) || val < 1 ? 1 : val)
+                  }}
+                  className="bg-[#1A1C23] border-[#2A2E39] focus:border-[#E63946] text-xs h-10 text-slate-100 rounded-lg"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Use mais de 1 para criar parcelas mensais automáticas (ex: aluguel 12x)
+                </p>
+              </div>
+            )}
+
+            {/* Linha 5: OBSERVAÇÕES */}
+            <div>
+              <label className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider mb-1.5">
+                OBSERVAÇÕES
+              </label>
+              <textarea
+                rows={3}
+                placeholder=""
+                value={dObservacoes}
+                onChange={(e) => setDObservacoes(e.target.value)}
+                className="w-full bg-[#1A1C23] border border-[#2A2E39] focus:border-[#E63946] text-slate-100 text-xs rounded-lg p-3 outline-none resize-y"
+              />
+            </div>
+
+            <DialogFooter className="pt-3 flex flex-row items-center justify-end gap-2 sm:gap-2">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setIsDespesaModalOpen(false)}
-                className="bg-transparent border-[#232A3B] text-slate-300"
+                className="bg-[#1A1C23] border-[#2A2E39] hover:bg-[#232732] text-slate-200 text-xs h-10 px-5 rounded-xl font-medium"
               >
                 Cancelar
               </Button>
               <Button
                 type="submit"
                 disabled={savingDespesa}
-                className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold"
+                className="bg-[#D62828] hover:bg-[#C1121F] text-white font-bold text-xs h-10 px-6 rounded-xl shadow-lg shadow-[#D62828]/25"
               >
-                {savingDespesa ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar Despesa'}
+                {savingDespesa ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Salvar'}
               </Button>
             </DialogFooter>
           </form>

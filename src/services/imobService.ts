@@ -6,6 +6,7 @@ import {
   MetaVGV,
   Transacao,
   Despesa,
+  DespesaCategoria,
   NotaFiscal,
   Fechamento,
   Configuracoes,
@@ -746,12 +747,30 @@ export const TransacaoService = {
   },
 }
 
+// Helper to add months preserving day or clamping to end of month
+function addMonthsToDate(date: Date, monthsToAdd: number): Date {
+  const result = new Date(date)
+  const expectedMonth = (result.getMonth() + monthsToAdd) % 12
+  const expectedYear = result.getFullYear() + Math.floor((result.getMonth() + monthsToAdd) / 12)
+
+  // Set day to 1 first to avoid overflow issues (e.g. Jan 31 + 1 month)
+  const originalDay = result.getDate()
+  result.setDate(1)
+  result.setFullYear(expectedYear)
+  result.setMonth((result.getMonth() + monthsToAdd) % 12)
+
+  // Find max days in the target month
+  const maxDays = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate()
+  result.setDate(Math.min(originalDay, maxDays))
+  return result
+}
+
 // Despesas Service
 export const DespesaService = {
   async getAll(filter?: string): Promise<Despesa[]> {
     return await pb.collection('despesas').getFullList<Despesa>({
       filter,
-      sort: '-data',
+      sort: '-data_vencimento,-data',
     })
   },
   async create(data: Partial<Despesa>, userId: string): Promise<Despesa> {
@@ -769,11 +788,92 @@ export const DespesaService = {
       data: record.data,
       data_competencia: record.data_competencia || null,
       data_vencimento: record.data_vencimento || null,
+      status: record.status || 'Pendente',
+      observacoes: record.observacoes || '',
       consolidado: false,
       user: userId,
     })
 
     return record
+  },
+  async createRecorrente(
+    data: {
+      descricao?: string
+      categoria: DespesaCategoria
+      valor: number
+      data_registro?: string
+      data_competencia_mes?: string // YYYY-MM
+      data_vencimento: string // YYYY-MM-DD
+      status?: 'Pendente' | 'Pago' | 'Cancelado'
+      recorrencia_meses: number
+      observacoes?: string
+    },
+    userId: string,
+  ): Promise<Despesa[]> {
+    const totalMeses = Math.max(1, Math.floor(Number(data.recorrencia_meses) || 1))
+    const baseDescricao = data.descricao?.trim() || ''
+    const status = data.status || 'Pendente'
+    const valor = Number(data.valor)
+    const categoria = data.categoria || 'outros'
+    const observacoes = data.observacoes?.trim() || ''
+
+    // Data de vencimento base
+    const baseVencDate = data.data_vencimento
+      ? new Date(data.data_vencimento + 'T12:00:00Z')
+      : new Date()
+
+    // Data de competência base
+    let baseCompDate: Date
+    if (data.data_competencia_mes) {
+      const [anoStr, mesStr] = data.data_competencia_mes.split('-')
+      baseCompDate = new Date(Date.UTC(parseInt(anoStr, 10), parseInt(mesStr, 10) - 1, 1, 12, 0, 0))
+    } else {
+      // Usa o mês e ano do vencimento ou data atual
+      baseCompDate = new Date(
+        Date.UTC(baseVencDate.getFullYear(), baseVencDate.getMonth(), 1, 12, 0, 0),
+      )
+    }
+
+    const baseRegistroDate = data.data_registro
+      ? new Date(data.data_registro + 'T12:00:00Z')
+      : new Date()
+
+    const createdRecords: Despesa[] = []
+
+    for (let i = 0; i < totalMeses; i++) {
+      // Incrementar 1 mês para cada parcela subsequente
+      const vencDate = addMonthsToDate(baseVencDate, i)
+      const compDate = addMonthsToDate(baseCompDate, i)
+
+      // Data de registro para parcelas futuras pode ser hoje ou acompanhando a data
+      const registroDate = i === 0 ? baseRegistroDate : addMonthsToDate(baseRegistroDate, i)
+
+      const parcelaSuffix = totalMeses > 1 ? ` (${i + 1}/${totalMeses})` : ''
+      const descFinal = baseDescricao
+        ? `${baseDescricao}${parcelaSuffix}`
+        : totalMeses > 1
+          ? `Despesa (${i + 1}/${totalMeses})`
+          : 'Despesa'
+
+      const despesaPayload: Partial<Despesa> = {
+        descricao: descFinal,
+        categoria,
+        valor,
+        data: registroDate.toISOString(),
+        data_competencia: compDate.toISOString(),
+        data_vencimento: vencDate.toISOString(),
+        recorrente: totalMeses > 1,
+        frequencia: totalMeses > 1 ? 'mensal' : undefined,
+        ativa: true,
+        status,
+        observacoes,
+      }
+
+      const rec = await this.create(despesaPayload, userId)
+      createdRecords.push(rec)
+    }
+
+    return createdRecords
   },
   async update(id: string, data: Partial<Despesa>): Promise<Despesa> {
     return await pb.collection('despesas').update<Despesa>(id, data)

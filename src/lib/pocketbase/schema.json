@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-30T12:59:30.501Z",
+  "generatedAt": "2026-08-30T13:49:32.512Z",
   "collections": [
     {
       "name": "users",
@@ -506,6 +506,19 @@
           "type": "date",
           "required": false,
           "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Pendente", "Pago", "Cancelado"]
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -604,6 +617,19 @@
         {
           "name": "data_vencimento",
           "type": "date",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "status",
+          "type": "select",
+          "required": false,
+          "system": false,
+          "selectValues": ["Pendente", "Pago", "Cancelado"]
+        },
+        {
+          "name": "observacoes",
+          "type": "text",
           "required": false,
           "system": false
         }
