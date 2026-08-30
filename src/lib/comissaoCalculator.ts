@@ -40,30 +40,19 @@ export interface DivisaoComissaoResult {
 }
 
 /**
- * Realiza a divisão de comissão seguindo estritamente as regras de negócio dos prints e especificações:
- *
- * Divisão base padrão: Imobiliária 50%, Corretor 40%, Captador(es) 10%.
- * (Sem captador: pode ser configurado ou 0% captador).
+ * Realiza a divisão de comissão seguindo estritamente as regras de negócio:
  *
  * CENTRALIZADA:
- * 1. O imposto de 6% é calculado sobre o VALOR TOTAL da comissão (ex: R$ 22.200 -> Imposto 6% = R$ 1.332,00).
- * 2. O valor de referência bruto da Imobiliária é 50% de 22.200 = R$ 11.100,00.
- * 3. O Corretor recebe 40% do total = R$ 8.880,00 e o Captador recebe 10% do total = R$ 2.220,00.
- * 4. Como a imobiliária arca com o imposto de toda a operação (ou o imposto é descontado do montante),
- *    o Líquido para a imobiliária é: R$ 11.100,00 - R$ 1.332,00 = R$ 9.768,00.
- *    (Conforme Print 2: Imobiliária: R$ 11.100,00 | Corretor: R$ 8.880,00 | Captador: R$ 2.220,00 | Imposto 6%: R$ 1.332,00 | Líquido para imobiliária: R$ 9.768,00).
+ * 1. Calcular o imposto de 6% sobre o valor TOTAL da comissão.
+ * 2. Subtrair esse imposto do total para obter o valor líquido total (Saldo Líquido).
+ * 3. Dividir esse valor líquido total entre as partes (ex: 50% Imobiliária, 40% Corretor, 10% Captador).
+ * Exemplo: R$ 15.000,00 (Total) -> R$ 900,00 (Imposto 6%) -> R$ 14.100,00 (Saldo Líquido) -> R$ 7.050,00 (Imobiliária) | R$ 5.640,00 (Corretor) | R$ 1.410,00 (Captador).
  *
  * SEPARADA:
- * 1. A comissão total é dividida entre as partes primeiro:
- *    Imobiliária Bruto (50%) = R$ 11.100,00
- *    Corretor (40%) = R$ 8.880,00
- *    Captador (10%) = R$ 2.220,00
- * 2. O imposto de 6% incide APENAS sobre a parte da imobiliária:
- *    6% de R$ 11.100,00 = R$ 666,00.
- * 3. O Corretor e o Captador recebem seus valores integrais (R$ 8.880,00 e R$ 2.220,00).
- * 4. O líquido da imobiliária é sua parte bruta menos o imposto de 6% sobre ela:
- *    R$ 11.100,00 - R$ 666,00 = R$ 10.434,00.
- *    (Conforme Print 3: Imobiliária: R$ 11.100,00 | Corretor: R$ 8.880,00 | Captador: R$ 2.220,00 | Imposto 6%: R$ 666,00 | Líquido para imobiliária: R$ 10.434,00).
+ * 1. A comissão total é dividida entre as partes primeiro (base bruta).
+ * 2. O imposto de 6% incide APENAS sobre a parte da imobiliária.
+ * 3. O Corretor e o Captador recebem seus valores integrais nominais.
+ * 4. O líquido da imobiliária é sua parte bruta menos o imposto de 6% sobre ela.
  */
 export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoComissaoResult {
   const valorBase = Math.max(0, Number(input.valorBase) || 0)
@@ -112,18 +101,19 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
     }
   }
 
-  // Valores nominais / brutos das partes sobre a comissão total
-  const valorImobiliariaBruto = (valorBase * pctImobConfig) / 100
-  const valorCorretor = (valorBase * pctCorrConfig) / 100
-  const valorCaptadorTotal = (valorBase * pctCaptTotalConfig) / 100
-  const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
-
   if (formaPagamento === 'Centralizada') {
-    // 1. Imposto sobre 100% do valor total da comissão
+    // 1. Calcular o imposto de 6% sobre o valor TOTAL da comissão
     const valorImposto = (valorBase * aliquotaImposto) / 100
 
-    // 2. Líquido da imobiliária = Parte Bruta da Imobiliária - Imposto Total de 6%
-    const valorImobiliariaLiquido = valorImobiliariaBruto - valorImposto
+    // 2. Subtrair esse imposto do total para obter o valor líquido total (base de cálculo das partes)
+    const baseLiquidaTotal = valorBase - valorImposto
+
+    // 3. Dividir esse valor líquido total entre as partes
+    const valorImobiliariaLiquido = (baseLiquidaTotal * pctImobConfig) / 100
+    const valorImobiliariaBruto = valorImobiliariaLiquido // No modelo centralizado, o valor da imobiliária é sua cota sobre o líquido
+    const valorCorretor = (baseLiquidaTotal * pctCorrConfig) / 100
+    const valorCaptadorTotal = (baseLiquidaTotal * pctCaptTotalConfig) / 100
+    const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
 
     const pctImobiliariaLiquidoReal =
       valorBase > 0 ? (valorImobiliariaLiquido / valorBase) * 100 : 0
@@ -132,7 +122,7 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
       formaPagamento: 'Centralizada',
       valorBase,
       aliquotaImposto,
-      baseCalculoPartes: valorBase,
+      baseCalculoPartes: baseLiquidaTotal,
       valorImposto,
       baseImposto: valorBase,
       descricaoImposto: `6% sobre o valor total (R$ ${valorBase.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
@@ -151,9 +141,16 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
     }
   } else {
     // SEPARADA:
-    // Imposto de 6% incide APENAS sobre a parte da imobiliária
+    // 1. Comissão total é dividida entre as partes primeiro sobre a base bruta
+    const valorImobiliariaBruto = (valorBase * pctImobConfig) / 100
+    const valorCorretor = (valorBase * pctCorrConfig) / 100
+    const valorCaptadorTotal = (valorBase * pctCaptTotalConfig) / 100
+    const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
+
+    // 2. Imposto de 6% incide APENAS sobre a parte da imobiliária
     const valorImposto = (valorImobiliariaBruto * aliquotaImposto) / 100
-    // Líquido da imobiliária = Parte Bruta da Imobiliária - Imposto de 6% sobre ela
+
+    // 3. Líquido da imobiliária = Parte Bruta da Imobiliária - Imposto de 6% sobre ela
     const valorImobiliariaLiquido = valorImobiliariaBruto - valorImposto
 
     const pctImobiliariaLiquidoReal =

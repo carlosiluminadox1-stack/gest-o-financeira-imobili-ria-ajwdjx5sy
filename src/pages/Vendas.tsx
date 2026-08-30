@@ -79,9 +79,9 @@ export default function Vendas() {
   const [modoCalculo, setModoCalculo] = useState<'%_vgv' | 'valor_fixo'>('%_vgv')
 
   // VGV e Comissão
-  const [formVgv, setFormVgv] = useState<number | ''>(370000)
+  const [formVgv, setFormVgv] = useState<number | ''>('')
   const [formPctNegociacao, setFormPctNegociacao] = useState<number | ''>(6)
-  const [formValorFixoComissao, setFormValorFixoComissao] = useState<number | ''>(22200)
+  const [formValorFixoComissao, setFormValorFixoComissao] = useState<number | ''>('')
 
   // Divisão da Comissão (%)
   const [pctImobiliaria, setPctImobiliaria] = useState<number>(50)
@@ -270,7 +270,6 @@ export default function Vendas() {
   }
 
   const handleOpenCreateModal = () => {
-    const activeFirst = corretores.find((c) => c.ativo)?.id || ''
     const now = new Date()
     const year = now.getFullYear()
     const month = String(now.getMonth() + 1).padStart(2, '0')
@@ -284,15 +283,15 @@ export default function Vendas() {
     setFormTitulo('')
     setFormFormaPagamento('Centralizada')
     setModoCalculo('%_vgv')
-    setFormVgv(370000)
+    setFormVgv('')
     setFormPctNegociacao(config?.percentual_comissao_padrao ?? 6)
-    setFormValorFixoComissao(22200)
+    setFormValorFixoComissao('')
 
     setPctImobiliaria(config?.percentual_imobiliaria ?? 50)
     setPctCorretor(config?.percentual_corretor ?? 40)
     setPctCaptador(config?.percentual_captador ?? 10)
 
-    setFormCorretorPrincipal(activeFirst)
+    setFormCorretorPrincipal('')
     setFormCorretorSecundario('')
     setFormCaptadores([])
     setShowSecondCorretor(false)
@@ -996,9 +995,11 @@ export default function Vendas() {
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder="370000"
+                    placeholder="Ex: 250000"
                     value={formVgv}
-                    onChange={(e) => setFormVgv(e.target.value ? Number(e.target.value) : '')}
+                    onChange={(e) =>
+                      setFormVgv(e.target.value !== '' ? Number(e.target.value) : '')
+                    }
                     className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
                   />
                   <p className="text-[10px] text-slate-400 mt-1">Usado para cálculo de metas</p>
@@ -1059,10 +1060,10 @@ export default function Vendas() {
                   <Input
                     type="number"
                     step="0.01"
-                    placeholder="22200"
+                    placeholder="Ex: 15000"
                     value={formValorFixoComissao}
                     onChange={(e) =>
-                      setFormValorFixoComissao(e.target.value ? Number(e.target.value) : '')
+                      setFormValorFixoComissao(e.target.value !== '' ? Number(e.target.value) : '')
                     }
                     className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
                   />
@@ -1123,15 +1124,15 @@ export default function Vendas() {
                 {/* Imobiliária */}
                 <div>
                   <span className="text-[10px] text-slate-400 block font-medium">Imobiliária:</span>
-                  <span className="font-bold text-emerald-400 block">
-                    {formatCurrency(divisaoAoVivo.valorImobiliariaBruto)}
+                  <span className="font-bold text-emerald-400 block tabular-nums">
+                    {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
                   </span>
                 </div>
 
                 {/* Corretor */}
                 <div>
                   <span className="text-[10px] text-slate-400 block font-medium">Corretor:</span>
-                  <span className="font-bold text-white block">
+                  <span className="font-bold text-white block tabular-nums">
                     {formatCurrency(divisaoAoVivo.valorCorretor)}
                   </span>
                 </div>
@@ -1139,7 +1140,7 @@ export default function Vendas() {
                 {/* Captador */}
                 <div>
                   <span className="text-[10px] text-slate-400 block font-medium">Captador:</span>
-                  <span className="font-bold text-white block">
+                  <span className="font-bold text-white block tabular-nums">
                     {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
                   </span>
                 </div>
@@ -1147,7 +1148,7 @@ export default function Vendas() {
                 {/* Imposto 6% */}
                 <div>
                   <span className="text-[10px] text-slate-400 block font-medium">Imposto 6%:</span>
-                  <span className="font-bold text-red-500 block">
+                  <span className="font-bold text-red-500 block tabular-nums">
                     {formatCurrency(divisaoAoVivo.valorImposto)}
                   </span>
                 </div>
@@ -1156,7 +1157,7 @@ export default function Vendas() {
               {/* Destaque Líquido para Imobiliária */}
               <div className="pt-2 border-t border-[#232A3B]/40 flex items-center justify-between">
                 <span className="text-xs text-slate-400">Líquido para imobiliária:</span>
-                <span className="text-sm font-black text-emerald-400">
+                <span className="text-sm font-black text-emerald-400 tabular-nums">
                   {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
                 </span>
               </div>
