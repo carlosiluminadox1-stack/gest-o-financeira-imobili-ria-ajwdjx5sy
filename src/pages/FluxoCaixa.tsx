@@ -65,8 +65,9 @@ export default function FluxoCaixa() {
   const [tipoFilter, setTipoFilter] = useState<string>('todos')
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todos')
 
-  // Modal Nova Transação Manual
+  // Modal Nova / Editar Transação
   const [isTransacaoModalOpen, setIsTransacaoModalOpen] = useState(false)
+  const [editingTransacao, setEditingTransacao] = useState<Transacao | null>(null)
   const [tTipo, setTTipo] = useState<TransacaoTipo>('entrada')
   const [tDescricao, setTDescricao] = useState('')
   const [tCategoria, setTCategoria] = useState<TransacaoCategoria>('outros')
@@ -74,8 +75,19 @@ export default function FluxoCaixa() {
   const [tData, setTData] = useState(new Date().toISOString().split('T')[0])
   const [tDataCompetencia, setTDataCompetencia] = useState('')
   const [tDataVencimento, setTDataVencimento] = useState('')
+  const [tStatus, setTStatus] = useState<'Pendente' | 'Pago' | 'Cancelado'>('Pendente')
+  const [tConsolidado, setTConsolidado] = useState(false)
+  const [tObservacoes, setTObservacoes] = useState('')
   const [tRecorrenciaMeses, setTRecorrenciaMeses] = useState<number>(1)
   const [savingTransacao, setSavingTransacao] = useState(false)
+
+  // Modal Exclusão de Transação
+  const [deletingTransacao, setDeletingTransacao] = useState<Transacao | null>(null)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [isDeletingTransacao, setIsDeletingTransacao] = useState(false)
+
+  // Loading individual de alternância de status
+  const [togglingStatusId, setTogglingStatusId] = useState<string | null>(null)
 
   // Modal Nova Despesa
   const [isDespesaModalOpen, setIsDespesaModalOpen] = useState(false)
@@ -239,8 +251,9 @@ export default function FluxoCaixa() {
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
   }
 
-  // Reset do Modal de Transação Manual
+  // Reset do Modal de Transação Manual (Criação)
   const handleOpenCreateTransacao = () => {
+    setEditingTransacao(null)
     setTTipo('entrada')
     setTDescricao('')
     setTCategoria('outros')
@@ -248,11 +261,45 @@ export default function FluxoCaixa() {
     setTData(new Date().toISOString().split('T')[0])
     setTDataCompetencia('')
     setTDataVencimento('')
+    setTStatus('Pendente')
+    setTConsolidado(false)
+    setTObservacoes('')
     setTRecorrenciaMeses(1)
     setIsTransacaoModalOpen(true)
   }
 
-  // Nova Transação Manual
+  // Abrir Modal para Edição de Transação
+  const handleOpenEditTransacao = (t: Transacao) => {
+    setEditingTransacao(t)
+    setTTipo(t.tipo)
+    setTDescricao(t.descricao)
+    setTCategoria(t.categoria || 'outros')
+    setTValor(t.valor)
+    setTData(
+      t.data
+        ? new Date(t.data).toISOString().split('T')[0]
+        : new Date().toISOString().split('T')[0],
+    )
+    setTDataCompetencia(getMesFromDate(t.data_competencia))
+    setTDataVencimento(
+      t.data_vencimento ? new Date(t.data_vencimento).toISOString().split('T')[0] : '',
+    )
+    const normalizedStatus =
+      t.status === 'Pago'
+        ? 'Pago'
+        : t.status === 'Cancelado'
+          ? 'Cancelado'
+          : t.consolidado
+            ? 'Pago'
+            : 'Pendente'
+    setTStatus(normalizedStatus)
+    setTConsolidado(Boolean(t.consolidado))
+    setTObservacoes(t.observacoes || '')
+    setTRecorrenciaMeses(1)
+    setIsTransacaoModalOpen(true)
+  }
+
+  // Salvar (Criar / Editar) Transação Manual
   const handleSaveTransacao = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!tDescricao.trim() || !tValor || Number(tValor) <= 0 || !user) {
@@ -262,54 +309,150 @@ export default function FluxoCaixa() {
 
     setSavingTransacao(true)
     try {
-      const competenciaIso =
-        tTipo === 'saida' ? buildCompetenciaIso(tDataCompetencia, tData) : undefined
-      const mesesRecorrencia =
-        tTipo === 'saida' ? Math.max(1, Math.floor(Number(tRecorrenciaMeses) || 1)) : 1
+      const competenciaIso = buildCompetenciaIso(tDataCompetencia, tData)
 
-      if (tTipo === 'saida' && mesesRecorrencia > 1) {
-        const created = await TransacaoService.createRecorrente({
-          tipo: 'saida',
-          descricao: tDescricao.trim(),
-          categoria: tCategoria,
-          valor: Number(tValor),
-          data: tData,
-          data_competencia_iso: competenciaIso,
-          data_vencimento: tDataVencimento || undefined,
-          recorrencia_meses: mesesRecorrencia,
-          user: user.id,
-        })
-        toast.success(`${created.length} parcelas de transação geradas com sucesso!`)
-      } else {
-        await TransacaoService.create({
+      if (editingTransacao) {
+        // Atualização de transação existente
+        const isPaid = tStatus === 'Pago'
+        const updatedPayload: Partial<Transacao> = {
           tipo: tTipo,
           descricao: tDescricao.trim(),
           categoria: tCategoria,
           valor: Number(tValor),
           data: new Date(tData + 'T12:00:00Z').toISOString(),
           data_competencia: competenciaIso,
-          data_vencimento:
-            tTipo === 'saida' && tDataVencimento
+          data_vencimento: tDataVencimento
+            ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
+            : undefined,
+          status: tStatus,
+          consolidado: isPaid,
+          observacoes: tObservacoes.trim(),
+        }
+
+        const updated = await TransacaoService.update(editingTransacao.id, updatedPayload)
+
+        // Atualizar estado local instantaneamente
+        setTransacoes((prev) =>
+          prev.map((item) => (item.id === editingTransacao.id ? { ...item, ...updated } : item)),
+        )
+        toast.success('Transação atualizada com sucesso!')
+      } else {
+        // Criação de nova transação
+        const mesesRecorrencia =
+          tTipo === 'saida'
+            ? Math.max(1, Math.min(60, Math.floor(Number(tRecorrenciaMeses) || 1)))
+            : 1
+
+        if (tTipo === 'saida' && mesesRecorrencia > 1) {
+          const created = await TransacaoService.createRecorrente({
+            tipo: 'saida',
+            descricao: tDescricao.trim(),
+            categoria: tCategoria,
+            valor: Number(tValor),
+            data: tData,
+            data_competencia_iso: competenciaIso,
+            data_vencimento: tDataVencimento || undefined,
+            recorrencia_meses: mesesRecorrencia,
+            user: user.id,
+          })
+          setTransacoes((prev) => [...created, ...prev])
+          toast.success(`${created.length} parcelas de transação geradas com sucesso!`)
+        } else {
+          const isPaid = tStatus === 'Pago'
+          const created = await TransacaoService.create({
+            tipo: tTipo,
+            descricao: tDescricao.trim(),
+            categoria: tCategoria,
+            valor: Number(tValor),
+            data: new Date(tData + 'T12:00:00Z').toISOString(),
+            data_competencia: competenciaIso,
+            data_vencimento: tDataVencimento
               ? new Date(tDataVencimento + 'T12:00:00Z').toISOString()
               : undefined,
-          consolidado: false,
-          user: user.id,
-        })
-        toast.success('Transação registrada com sucesso!')
+            status: tStatus,
+            consolidado: isPaid,
+            observacoes: tObservacoes.trim(),
+            user: user.id,
+          })
+          setTransacoes((prev) => [created, ...prev])
+          toast.success('Transação registrada com sucesso!')
+        }
       }
 
       setIsTransacaoModalOpen(false)
-      setTDescricao('')
-      setTValor('')
-      setTDataCompetencia('')
-      setTDataVencimento('')
-      setTRecorrenciaMeses(1)
+      setEditingTransacao(null)
       loadData()
     } catch (err) {
       console.error(err)
-      toast.error('Erro ao registrar transação.')
+      toast.error('Erro ao salvar transação.')
     } finally {
       setSavingTransacao(false)
+    }
+  }
+
+  // Alternar Status / Baixa Direta na Tabela (Toggle Pago <-> Pendente / Aberto)
+  const handleToggleStatus = async (t: Transacao) => {
+    // Determinar status atual
+    const isCurrentlyPaid = t.status === 'Pago' || (t.consolidado && t.status !== 'Pendente')
+    const nextStatus = isCurrentlyPaid ? 'Pendente' : 'Pago'
+    const nextConsolidado = !isCurrentlyPaid
+
+    setTogglingStatusId(t.id)
+
+    // Atualização otimista imediata na UI
+    setTransacoes((prev) =>
+      prev.map((item) =>
+        item.id === t.id ? { ...item, status: nextStatus, consolidado: nextConsolidado } : item,
+      ),
+    )
+
+    try {
+      await TransacaoService.update(t.id, {
+        status: nextStatus,
+        consolidado: nextConsolidado,
+      })
+
+      if (nextConsolidado) {
+        toast.success(`Transação "${t.descricao}" marcada como PAGA / Consolidada!`)
+      } else {
+        toast.info(`Transação "${t.descricao}" marcada como PENDENTE / Aberta.`)
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao atualizar status da transação.')
+      // Reverter em caso de falha
+      setTransacoes((prev) => prev.map((item) => (item.id === t.id ? t : item)))
+    } finally {
+      setTogglingStatusId(null)
+    }
+  }
+
+  // Abrir Modal de Exclusão de Transação
+  const handleOpenDeleteTransacao = (t: Transacao) => {
+    setDeletingTransacao(t)
+    setIsDeleteModalOpen(true)
+  }
+
+  // Confirmar Exclusão de Transação
+  const handleConfirmDeleteTransacao = async () => {
+    if (!deletingTransacao) return
+
+    setIsDeletingTransacao(true)
+    const idToDelete = deletingTransacao.id
+
+    try {
+      await TransacaoService.delete(idToDelete)
+
+      // Atualização imediata do estado
+      setTransacoes((prev) => prev.filter((item) => item.id !== idToDelete))
+      toast.success('Transação excluída com sucesso!')
+      setIsDeleteModalOpen(false)
+      setDeletingTransacao(null)
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao excluir transação.')
+    } finally {
+      setIsDeletingTransacao(false)
     }
   }
 
@@ -461,8 +604,8 @@ export default function FluxoCaixa() {
     if (!confirm('Deseja realmente remover esta despesa?')) return
     try {
       await DespesaService.delete(id)
+      setDespesas((prev) => prev.filter((item) => item.id !== id))
       toast.success('Despesa removida!')
-      loadData()
     } catch (err) {
       toast.error('Erro ao excluir despesa.')
     }
@@ -692,74 +835,125 @@ export default function FluxoCaixa() {
                     <th className="py-3.5 px-4">Vencimento</th>
                     <th className="py-3.5 px-4 text-center">Consolidado</th>
                     <th className="py-3.5 px-4 text-right">Valor</th>
+                    <th className="py-3.5 px-4 text-right">Ações</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#232A3B]">
-                  {transacoesPeriodo.map((t) => (
-                    <tr key={t.id} className="hover:bg-[#1A2234]/50 transition-colors">
-                      <td className="py-3.5 px-4">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                            t.tipo === 'entrada'
-                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                              : 'bg-red-500/15 text-red-400 border border-red-500/20'
+                  {transacoesPeriodo.map((t) => {
+                    const isPago =
+                      t.status === 'Pago' ||
+                      (t.consolidado && t.status !== 'Pendente' && t.status !== 'Cancelado')
+                    const isCancelado = t.status === 'Cancelado'
+                    const isToggling = togglingStatusId === t.id
+
+                    return (
+                      <tr key={t.id} className="hover:bg-[#1A2234]/50 transition-colors">
+                        <td className="py-3.5 px-4">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                              t.tipo === 'entrada'
+                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                : 'bg-red-500/15 text-red-400 border border-red-500/20'
+                            }`}
+                          >
+                            {t.tipo === 'entrada' ? (
+                              <ArrowUpRight className="w-3 h-3" />
+                            ) : (
+                              <ArrowDownRight className="w-3 h-3" />
+                            )}
+                            {t.tipo}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-slate-100 max-w-[260px]">
+                          {t.descricao}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 capitalize">{t.categoria}</td>
+                        <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
+                          {new Date(t.data).toLocaleDateString('pt-BR')}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                          {t.data_competencia ? (
+                            formatCompetencia(t.data_competencia)
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                          {t.data_vencimento ? (
+                            new Date(t.data_vencimento).toLocaleDateString('pt-BR')
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            type="button"
+                            disabled={isToggling}
+                            onClick={() => handleToggleStatus(t)}
+                            title={
+                              isPago
+                                ? 'Clique para marcar como Aberto / Pendente'
+                                : 'Clique para marcar como Pago / Baixar'
+                            }
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
+                              isPago
+                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                                : isCancelado
+                                  ? 'bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25'
+                                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
+                            }`}
+                          >
+                            {isToggling ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : isPago ? (
+                              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : isCancelado ? (
+                              <XCircle className="w-3.5 h-3.5 text-slate-400" />
+                            ) : (
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                            )}
+                            <span>{isPago ? 'Pago' : isCancelado ? 'Cancelado' : 'Aberto'}</span>
+                          </button>
+                        </td>
+                        <td
+                          className={`py-3.5 px-4 text-right font-bold text-sm tabular-nums whitespace-nowrap ${
+                            t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'
                           }`}
                         >
-                          {t.tipo === 'entrada' ? (
-                            <ArrowUpRight className="w-3 h-3" />
-                          ) : (
-                            <ArrowDownRight className="w-3 h-3" />
-                          )}
-                          {t.tipo}
-                        </span>
-                      </td>
-                      <td className="py-3.5 px-4 font-semibold text-slate-100 max-w-[260px]">
-                        {t.descricao}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-300 capitalize">{t.categoria}</td>
-                      <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
-                        {new Date(t.data).toLocaleDateString('pt-BR')}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
-                        {t.data_competencia ? (
-                          formatCompetencia(t.data_competencia)
-                        ) : (
-                          <span className="text-slate-500">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
-                        {t.data_vencimento ? (
-                          new Date(t.data_vencimento).toLocaleDateString('pt-BR')
-                        ) : (
-                          <span className="text-slate-500">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        {t.consolidado ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                            <CheckCircle className="w-3 h-3" /> Fechado
-                          </span>
-                        ) : (
-                          <span className="text-[11px] text-slate-500">Aberto</span>
-                        )}
-                      </td>
-                      <td
-                        className={`py-3.5 px-4 text-right font-bold text-sm tabular-nums whitespace-nowrap ${
-                          t.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'
-                        }`}
-                      >
-                        {t.tipo === 'entrada' ? '+' : '-'} {formatCurrency(t.valor)}
-                      </td>
-                    </tr>
-                  ))}
-
+                          {t.tipo === 'entrada' ? '+' : '-'} {formatCurrency(t.valor)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Editar transação"
+                              onClick={() => handleOpenEditTransacao(t)}
+                              className="h-7 w-7 text-slate-400 hover:text-white hover:bg-slate-700/50"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Excluir transação"
+                              onClick={() => handleOpenDeleteTransacao(t)}
+                              className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
                   {transacoesPeriodo.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-12 text-center text-slate-500">
+                      <td colSpan={9} className="py-12 text-center text-slate-500">
                         Nenhuma transação encontrada no período.
                       </td>
                     </tr>
-                  )}
+                  )}{' '}
                 </tbody>
               </table>
             </div>
@@ -870,16 +1064,18 @@ export default function FluxoCaixa() {
         </div>
       )}
 
-      {/* Modal Nova Transação Manual */}
+      {/* Modal Nova / Editar Transação */}
       <Dialog open={isTransacaoModalOpen} onOpenChange={setIsTransacaoModalOpen}>
         <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-md">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
               <ArrowLeftRight className="w-5 h-5 text-[#E63946]" />
-              Nova Transação Financeira
+              {editingTransacao ? 'Editar Transação Financeira' : 'Nova Transação Financeira'}
             </DialogTitle>
             <DialogDescription className="text-xs text-slate-400">
-              Lance uma entrada ou saída direta no fluxo de caixa.
+              {editingTransacao
+                ? 'Atualize os dados da transação selecionada.'
+                : 'Lance uma entrada ou saída direta no fluxo de caixa.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -920,7 +1116,7 @@ export default function FluxoCaixa() {
               </label>
               <Input
                 type="text"
-                placeholder="Ex: Aporte de capital, Material de reforma, etc."
+                placeholder="Ex: Aporte de capital, Aluguel Sede, Material, etc."
                 value={tDescricao}
                 onChange={(e) => setTDescricao(e.target.value)}
                 className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
@@ -953,6 +1149,7 @@ export default function FluxoCaixa() {
                 </label>
                 <Input
                   type="number"
+                  step="0.01"
                   placeholder="Ex: 500"
                   value={tValor}
                   onChange={(e) => setTValor(e.target.value ? Number(e.target.value) : '')}
@@ -961,58 +1158,75 @@ export default function FluxoCaixa() {
               </div>
             </div>
 
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1">
-                Data do Registro / Lançamento *
-              </label>
-              <Input
-                type="date"
-                value={tData}
-                onChange={(e) => setTData(e.target.value)}
-                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Data do Registro *
+                </label>
+                <Input
+                  type="date"
+                  value={tData}
+                  onChange={(e) => setTData(e.target.value)}
+                  className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Status (Consolidado)
+                </label>
+                <select
+                  value={tStatus}
+                  onChange={(e) => setTStatus(e.target.value as 'Pendente' | 'Pago' | 'Cancelado')}
+                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
+                >
+                  <option value="Pendente">Pendente (Aberto)</option>
+                  <option value="Pago">Pago (Consolidado)</option>
+                  <option value="Cancelado">Cancelado</option>
+                </select>
+              </div>
             </div>
 
-            {tTipo === 'saida' && (
-              <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Data de Competência
-                    </label>
-                    <p className="text-[10px] text-slate-400 mb-1.5">
-                      Mês em que o gasto ocorreu de fato
-                    </p>
-                    <select
-                      value={tDataCompetencia}
-                      onChange={(e) => setTDataCompetencia(e.target.value)}
-                      className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
-                    >
-                      <option value="">Selecione o mês (opcional)</option>
-                      {MESES_NOMES.map((nome, idx) => (
-                        <option key={idx + 1} value={String(idx + 1)}>
-                          {nome}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-semibold text-slate-300 mb-1">
-                      Data de Vencimento
-                    </label>
-                    <p className="text-[10px] text-slate-400 mb-1.5">
-                      Quando a despesa vence/precisa ser paga
-                    </p>
-                    <Input
-                      type="date"
-                      value={tDataVencimento}
-                      onChange={(e) => setTDataVencimento(e.target.value)}
-                      className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
-                    />
-                  </div>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Data de Competência
+                  </label>
+                  <p className="text-[10px] text-slate-400 mb-1.5">
+                    Mês em que o fato financeiro ocorreu
+                  </p>
+                  <select
+                    value={tDataCompetencia}
+                    onChange={(e) => setTDataCompetencia(e.target.value)}
+                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
+                  >
+                    <option value="">Selecione o mês (opcional)</option>
+                    {MESES_NOMES.map((nome, idx) => (
+                      <option key={idx + 1} value={String(idx + 1)}>
+                        {nome}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1">
+                    Data de Vencimento
+                  </label>
+                  <p className="text-[10px] text-slate-400 mb-1.5">
+                    Quando a transação vence/é paga
+                  </p>
+                  <Input
+                    type="date"
+                    value={tDataVencimento}
+                    onChange={(e) => setTDataVencimento(e.target.value)}
+                    className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                  />
+                </div>
+              </div>
+
+              {!editingTransacao && tTipo === 'saida' && (
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">
                     RECORRÊNCIA (MESES)
@@ -1029,11 +1243,24 @@ export default function FluxoCaixa() {
                     className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100"
                   />
                   <p className="text-[10px] text-slate-500 mt-1">
-                    Use mais de 1 para criar lançamentos mensais automáticos (ex: 12x)
+                    Gera parcelas sequenciais automáticas (até 60 meses, ex: 12x)
                   </p>
                 </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-300 mb-1">
+                  Observações
+                </label>
+                <textarea
+                  rows={2}
+                  placeholder="Anotações internas sobre esta transação..."
+                  value={tObservacoes}
+                  onChange={(e) => setTObservacoes(e.target.value)}
+                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg p-2.5 outline-none resize-y"
+                />
               </div>
-            )}
+            </div>
 
             <DialogFooter className="pt-2">
               <Button
@@ -1051,6 +1278,8 @@ export default function FluxoCaixa() {
               >
                 {savingTransacao ? (
                   <Loader2 className="w-4 h-4 animate-spin" />
+                ) : editingTransacao ? (
+                  'Atualizar Transação'
                 ) : (
                   'Lançar Transação'
                 )}
@@ -1060,6 +1289,60 @@ export default function FluxoCaixa() {
         </DialogContent>
       </Dialog>
 
+      {/* Modal Confirmação de Exclusão de Transação */}
+      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-sm p-6 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Excluir Transação
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-300 mt-2">
+              Tem certeza que deseja remover permanentemente esta transação?
+            </DialogDescription>
+          </DialogHeader>
+
+          {deletingTransacao && (
+            <div className="my-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs space-y-1">
+              <p className="font-semibold text-slate-100">{deletingTransacao.descricao}</p>
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Valor:</span>
+                <span
+                  className={`font-bold ${
+                    deletingTransacao.tipo === 'entrada' ? 'text-emerald-400' : 'text-red-400'
+                  }`}
+                >
+                  {formatCurrency(deletingTransacao.valor)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingTransacao}
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletingTransacao}
+              onClick={handleConfirmDeleteTransacao}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {isDeletingTransacao ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                'Excluir Definitivamente'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {/* Modal Nova / Editar Despesa */}
       <Dialog open={isDespesaModalOpen} onOpenChange={setIsDespesaModalOpen}>
         <DialogContent className="bg-[#111216] border-[#22252C] text-slate-100 max-w-lg p-6 rounded-2xl shadow-2xl">

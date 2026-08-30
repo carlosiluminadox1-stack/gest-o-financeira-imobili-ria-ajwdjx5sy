@@ -752,7 +752,7 @@ export const TransacaoService = {
     recorrencia_meses: number
     user: string
   }): Promise<Transacao[]> {
-    const totalMeses = Math.max(1, Math.floor(Number(data.recorrencia_meses) || 1))
+    const totalMeses = Math.max(1, Math.min(60, Math.floor(Number(data.recorrencia_meses) || 1)))
     const baseDescricao = data.descricao?.trim() || 'Transação'
     const valor = Number(data.valor)
 
@@ -787,6 +787,7 @@ export const TransacaoService = {
         data_competencia: compDate ? compDate.toISOString() : undefined,
         data_vencimento: vencDate ? vencDate.toISOString() : undefined,
         consolidado: false,
+        status: 'Pendente',
         user: data.user,
       }
 
@@ -804,21 +805,25 @@ export const TransacaoService = {
   },
 }
 
-// Helper to add months preserving day or clamping to end of month
+// Helper to add months preserving day or clamping to end of month (using UTC for date-only consistency)
 function addMonthsToDate(date: Date, monthsToAdd: number): Date {
-  const result = new Date(date)
-  const expectedMonth = (result.getMonth() + monthsToAdd) % 12
-  const expectedYear = result.getFullYear() + Math.floor((result.getMonth() + monthsToAdd) / 12)
+  const result = new Date(date.getTime())
+  const originalDay = result.getUTCDate()
+  const currentMonth = result.getUTCMonth()
+  const currentYear = result.getUTCFullYear()
 
-  // Set day to 1 first to avoid overflow issues (e.g. Jan 31 + 1 month)
-  const originalDay = result.getDate()
-  result.setDate(1)
-  result.setFullYear(expectedYear)
-  result.setMonth((result.getMonth() + monthsToAdd) % 12)
+  const targetTotalMonths = currentMonth + monthsToAdd
+  const targetYear = currentYear + Math.floor(targetTotalMonths / 12)
+  const targetMonth = ((targetTotalMonths % 12) + 12) % 12
 
-  // Find max days in the target month
-  const maxDays = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate()
-  result.setDate(Math.min(originalDay, maxDays))
+  // Set to 1st of target month first
+  result.setUTCFullYear(targetYear)
+  result.setUTCMonth(targetMonth, 1)
+
+  // Find max days in the target month (day 0 of targetMonth + 1 in targetYear)
+  const maxDaysInTargetMonth = new Date(Date.UTC(targetYear, targetMonth + 1, 0)).getUTCDate()
+  result.setUTCDate(Math.min(originalDay, maxDaysInTargetMonth))
+
   return result
 }
 
@@ -867,7 +872,7 @@ export const DespesaService = {
     },
     userId: string,
   ): Promise<Despesa[]> {
-    const totalMeses = Math.max(1, Math.floor(Number(data.recorrencia_meses) || 1))
+    const totalMeses = Math.max(1, Math.min(60, Math.floor(Number(data.recorrencia_meses) || 1)))
     const baseDescricao = data.descricao?.trim() || ''
     const status = data.status || 'Pendente'
     const valor = Number(data.valor)
@@ -876,7 +881,9 @@ export const DespesaService = {
 
     // Data de vencimento base
     const baseVencDate = data.data_vencimento
-      ? new Date(data.data_vencimento + 'T12:00:00Z')
+      ? data.data_vencimento.includes('T')
+        ? new Date(data.data_vencimento)
+        : new Date(data.data_vencimento + 'T12:00:00Z')
       : new Date()
 
     // Data de competência base
@@ -887,12 +894,14 @@ export const DespesaService = {
     } else {
       // Usa o mês e ano do vencimento ou data atual
       baseCompDate = new Date(
-        Date.UTC(baseVencDate.getFullYear(), baseVencDate.getMonth(), 1, 12, 0, 0),
+        Date.UTC(baseVencDate.getUTCFullYear(), baseVencDate.getUTCMonth(), 1, 12, 0, 0),
       )
     }
 
     const baseRegistroDate = data.data_registro
-      ? new Date(data.data_registro + 'T12:00:00Z')
+      ? data.data_registro.includes('T')
+        ? new Date(data.data_registro)
+        : new Date(data.data_registro + 'T12:00:00Z')
       : new Date()
 
     const createdRecords: Despesa[] = []
@@ -902,7 +911,7 @@ export const DespesaService = {
       const vencDate = addMonthsToDate(baseVencDate, i)
       const compDate = addMonthsToDate(baseCompDate, i)
 
-      // Data de registro para parcelas futuras pode ser hoje ou acompanhando a data
+      // Data de registro para parcelas futuras
       const registroDate = i === 0 ? baseRegistroDate : addMonthsToDate(baseRegistroDate, i)
 
       const parcelaSuffix = totalMeses > 1 ? ` (${i + 1}/${totalMeses})` : ''
