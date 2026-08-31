@@ -4,10 +4,7 @@ import {
   Plus,
   ArrowUpRight,
   ArrowDownRight,
-  Filter,
   Search,
-  Calendar,
-  Layers,
   Repeat,
   CheckCircle,
   XCircle,
@@ -16,6 +13,8 @@ import {
   Loader2,
   DollarSign,
   AlertCircle,
+  CheckSquare,
+  X,
 } from 'lucide-react'
 import { TransacaoService, DespesaService } from '@/services/imobService'
 import {
@@ -30,7 +29,7 @@ import { useAuth } from '@/context/AuthContext'
 import { usePeriodo, MESES_NOMES } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Switch } from '@/components/ui/switch'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -59,6 +58,12 @@ export default function FluxoCaixa() {
   const [transacoes, setTransacoes] = useState<Transacao[]>([])
   const [despesas, setDespesas] = useState<Despesa[]>([])
   const [loading, setLoading] = useState(true)
+
+  // Seleção múltipla (checkboxes)
+  const [selectedTransacoesIds, setSelectedTransacoesIds] = useState<string[]>([])
+  const [selectedDespesasIds, setSelectedDespesasIds] = useState<string[]>([])
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false)
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   // Filtros Transações
   const [searchTerm, setSearchTerm] = useState('')
@@ -262,6 +267,79 @@ export default function FluxoCaixa() {
       return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
     }
     return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`
+  }
+
+  // Limpar seleção ao trocar de aba
+  const handleTabChange = (tab: 'transacoes' | 'despesas') => {
+    setActiveTab(tab)
+    setSelectedTransacoesIds([])
+    setSelectedDespesasIds([])
+  }
+
+  // Ações de seleção múltipla para Transações
+  const handleSelectAllTransacoes = (checked: boolean) => {
+    if (checked) {
+      setSelectedTransacoesIds(transacoesPeriodo.map((t) => t.id))
+    } else {
+      setSelectedTransacoesIds([])
+    }
+  }
+
+  const handleToggleSelectTransacao = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setSelectedTransacoesIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    )
+  }
+
+  // Ações de seleção múltipla para Despesas
+  const handleSelectAllDespesas = (checked: boolean) => {
+    if (checked) {
+      setSelectedDespesasIds(despesas.map((d) => d.id))
+    } else {
+      setSelectedDespesasIds([])
+    }
+  }
+
+  const handleToggleSelectDespesa = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setSelectedDespesasIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    )
+  }
+
+  // Exclusão em lote (Bulk Delete)
+  const handleOpenBulkDelete = () => {
+    setIsBulkDeleteModalOpen(true)
+  }
+
+  const handleConfirmBulkDelete = async () => {
+    setIsDeletingBulk(true)
+    try {
+      if (activeTab === 'transacoes') {
+        const idsToDelete = [...selectedTransacoesIds]
+        await Promise.all(idsToDelete.map((id) => TransacaoService.delete(id)))
+        setTransacoes((prev) => prev.filter((t) => !idsToDelete.includes(t.id)))
+        setSelectedTransacoesIds([])
+        toast.success(
+          `${idsToDelete.length} transaç${idsToDelete.length > 1 ? 'ões excluídas' : 'ão excluída'} com sucesso!`,
+        )
+      } else {
+        const idsToDelete = [...selectedDespesasIds]
+        await Promise.all(idsToDelete.map((id) => DespesaService.delete(id)))
+        setDespesas((prev) => prev.filter((d) => !idsToDelete.includes(d.id)))
+        setSelectedDespesasIds([])
+        toast.success(
+          `${idsToDelete.length} despesa${idsToDelete.length > 1 ? 's excluídas' : ' excluída'} com sucesso!`,
+        )
+      }
+      setIsBulkDeleteModalOpen(false)
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao excluir registros selecionados.')
+    } finally {
+      setIsDeletingBulk(false)
+    }
   }
 
   // Reset do Modal de Transação Manual (Criação)
@@ -830,7 +908,7 @@ export default function FluxoCaixa() {
       {/* Tabs Switcher: Transações vs Despesas */}
       <div className="flex items-center gap-2 border-b border-[#232A3B] pb-3">
         <button
-          onClick={() => setActiveTab('transacoes')}
+          onClick={() => handleTabChange('transacoes')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'transacoes'
               ? 'bg-[#E63946] text-white shadow-md shadow-[#E63946]/20'
@@ -840,7 +918,7 @@ export default function FluxoCaixa() {
           Extrato de Transações ({transacoesPeriodo.length})
         </button>
         <button
-          onClick={() => setActiveTab('despesas')}
+          onClick={() => handleTabChange('despesas')}
           className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
             activeTab === 'despesas'
               ? 'bg-[#E63946] text-white shadow-md shadow-[#E63946]/20'
@@ -850,6 +928,66 @@ export default function FluxoCaixa() {
           Gestão de Despesas & Recorrências ({despesas.length})
         </button>
       </div>
+
+      {/* Bulk Actions Bar (Barra de Ações em Lote) */}
+      {((activeTab === 'transacoes' && selectedTransacoesIds.length > 0) ||
+        (activeTab === 'despesas' && selectedDespesasIds.length > 0)) && (
+        <div className="sticky top-2 z-20 bg-[#171C28] border-2 border-[#E63946]/40 shadow-2xl shadow-[#E63946]/10 rounded-2xl p-3 sm:px-5 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top duration-200">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="w-8 h-8 rounded-lg bg-[#E63946]/15 border border-[#E63946]/30 flex items-center justify-center text-[#E63946] shrink-0">
+              <CheckSquare className="w-4 h-4" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-white">
+                {activeTab === 'transacoes'
+                  ? selectedTransacoesIds.length
+                  : selectedDespesasIds.length}{' '}
+                {activeTab === 'transacoes'
+                  ? selectedTransacoesIds.length === 1
+                    ? 'transação selecionada'
+                    : 'transações selecionadas'
+                  : selectedDespesasIds.length === 1
+                    ? 'despesa selecionada'
+                    : 'despesas selecionadas'}
+              </span>
+              <span className="text-xs text-slate-400 hidden md:inline">
+                • {activeTab === 'transacoes' ? 'Extrato de Caixa' : 'Gestão de Despesas'}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                if (activeTab === 'transacoes') setSelectedTransacoesIds([])
+                else setSelectedDespesasIds([])
+              }}
+              className="bg-[#0B0E14] border-[#232A3B] hover:bg-[#1A2234] text-slate-300 text-xs h-9 px-3 rounded-xl gap-1.5"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Desmarcar</span>
+            </Button>
+
+            <Button
+              type="button"
+              onClick={handleOpenBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs h-9 px-4 rounded-xl shadow-lg shadow-red-600/20 flex items-center gap-1.5 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>
+                Excluir Selecionados (
+                {activeTab === 'transacoes'
+                  ? selectedTransacoesIds.length
+                  : selectedDespesasIds.length}
+                )
+              </span>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* ABA 1: TRANSAÇÕES */}
       {activeTab === 'transacoes' && (
@@ -909,6 +1047,21 @@ export default function FluxoCaixa() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
+                    <th className="py-3.5 px-4 w-10 text-center">
+                      <Checkbox
+                        checked={
+                          transacoesPeriodo.length > 0 &&
+                          selectedTransacoesIds.length === transacoesPeriodo.length
+                            ? true
+                            : selectedTransacoesIds.length > 0
+                              ? 'indeterminate'
+                              : false
+                        }
+                        onCheckedChange={(checked) => handleSelectAllTransacoes(Boolean(checked))}
+                        aria-label="Selecionar todas as transações"
+                        className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
+                      />
+                    </th>
                     <th className="py-3.5 px-4">Tipo</th>
                     <th className="py-3.5 px-4">Descrição</th>
                     <th className="py-3.5 px-4">Categoria</th>
@@ -927,9 +1080,29 @@ export default function FluxoCaixa() {
                       (t.consolidado && t.status !== 'Pendente' && t.status !== 'Cancelado')
                     const isCancelado = t.status === 'Cancelado'
                     const isToggling = togglingStatusId === t.id
+                    const isSelected = selectedTransacoesIds.includes(t.id)
 
                     return (
-                      <tr key={t.id} className="hover:bg-[#1A2234]/50 transition-colors">
+                      <tr
+                        key={t.id}
+                        onClick={() => handleToggleSelectTransacao(t.id)}
+                        className={`cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-[#E63946]/10 hover:bg-[#E63946]/15'
+                            : 'hover:bg-[#1A2234]/50'
+                        }`}
+                      >
+                        <td
+                          className="py-3.5 px-4 text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleToggleSelectTransacao(t.id)}
+                            aria-label={`Selecionar transação ${t.descricao}`}
+                            className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
+                          />
+                        </td>
                         <td className="py-3.5 px-4">
                           <span
                             className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${
@@ -967,7 +1140,10 @@ export default function FluxoCaixa() {
                             <span className="text-slate-500">—</span>
                           )}
                         </td>
-                        <td className="py-3.5 px-4 text-center">
+                        <td
+                          className="py-3.5 px-4 text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <button
                             type="button"
                             disabled={isToggling}
@@ -1006,7 +1182,7 @@ export default function FluxoCaixa() {
                         >
                           {t.tipo === 'entrada' ? '+' : '-'} {formatCurrency(t.valor)}
                         </td>
-                        <td className="py-3.5 px-4 text-right">
+                        <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
                             <Button
                               variant="ghost"
@@ -1033,7 +1209,7 @@ export default function FluxoCaixa() {
                   })}
                   {transacoesPeriodo.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-500">
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
                         Nenhuma transação encontrada no período.
                       </td>
                     </tr>
@@ -1053,6 +1229,20 @@ export default function FluxoCaixa() {
               <table className="w-full text-left text-xs">
                 <thead>
                   <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
+                    <th className="py-3.5 px-4 w-10 text-center">
+                      <Checkbox
+                        checked={
+                          despesas.length > 0 && selectedDespesasIds.length === despesas.length
+                            ? true
+                            : selectedDespesasIds.length > 0
+                              ? 'indeterminate'
+                              : false
+                        }
+                        onCheckedChange={(checked) => handleSelectAllDespesas(Boolean(checked))}
+                        aria-label="Selecionar todas as despesas"
+                        className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
+                      />
+                    </th>
                     <th className="py-3.5 px-4">Descrição</th>
                     <th className="py-3.5 px-4">Categoria</th>
                     <th className="py-3.5 px-4">Data Registro</th>
@@ -1065,110 +1255,135 @@ export default function FluxoCaixa() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#232A3B]">
-                  {despesas.map((d) => (
-                    <tr key={d.id} className="hover:bg-[#1A2234]/50 transition-colors">
-                      <td className="py-3.5 px-4 font-semibold text-slate-100">{d.descricao}</td>
-                      <td className="py-3.5 px-4 text-slate-300 capitalize">{d.categoria}</td>
-                      <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
-                        {d.data ? new Date(d.data).toLocaleDateString('pt-BR') : '—'}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
-                        {d.data_competencia ? (
-                          formatCompetencia(d.data_competencia)
-                        ) : (
-                          <span className="text-slate-500">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
-                        {d.data_vencimento ? (
-                          new Date(d.data_vencimento).toLocaleDateString('pt-BR')
-                        ) : (
-                          <span className="text-slate-500">—</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4">
-                        {d.recorrente ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/25 capitalize">
-                            <Repeat className="w-3 h-3" /> {d.frequencia || 'Mensal'}
-                          </span>
-                        ) : (
-                          <span className="text-slate-500 text-[11px]">Eventual</span>
-                        )}
-                      </td>
-                      <td className="py-3.5 px-4 text-center">
-                        {(() => {
-                          const isDespesaPaga = d.status === 'Pago'
-                          const isDespesaCancelada = d.status === 'Cancelado'
-                          const isTogglingDespesa = togglingDespesaStatusId === d.id
+                  {despesas.map((d) => {
+                    const isSelected = selectedDespesasIds.includes(d.id)
+                    return (
+                      <tr
+                        key={d.id}
+                        onClick={() => handleToggleSelectDespesa(d.id)}
+                        className={`cursor-pointer transition-colors ${
+                          isSelected
+                            ? 'bg-[#E63946]/10 hover:bg-[#E63946]/15'
+                            : 'hover:bg-[#1A2234]/50'
+                        }`}
+                      >
+                        <td
+                          className="py-3.5 px-4 text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <Checkbox
+                            checked={isSelected}
+                            onCheckedChange={() => handleToggleSelectDespesa(d.id)}
+                            aria-label={`Selecionar despesa ${d.descricao}`}
+                            className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
+                          />
+                        </td>
+                        <td className="py-3.5 px-4 font-semibold text-slate-100">{d.descricao}</td>
+                        <td className="py-3.5 px-4 text-slate-300 capitalize">{d.categoria}</td>
+                        <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
+                          {d.data ? new Date(d.data).toLocaleDateString('pt-BR') : '—'}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                          {d.data_competencia ? (
+                            formatCompetencia(d.data_competencia)
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4 text-slate-300 whitespace-nowrap">
+                          {d.data_vencimento ? (
+                            new Date(d.data_vencimento).toLocaleDateString('pt-BR')
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </td>
+                        <td className="py-3.5 px-4">
+                          {d.recorrente ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-purple-500/15 text-purple-400 border border-purple-500/25 capitalize">
+                              <Repeat className="w-3 h-3" /> {d.frequencia || 'Mensal'}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500 text-[11px]">Eventual</span>
+                          )}
+                        </td>
+                        <td
+                          className="py-3.5 px-4 text-center"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          {(() => {
+                            const isDespesaPaga = d.status === 'Pago'
+                            const isDespesaCancelada = d.status === 'Cancelado'
+                            const isTogglingDespesa = togglingDespesaStatusId === d.id
 
-                          return (
-                            <button
-                              type="button"
-                              disabled={isTogglingDespesa}
-                              onClick={() => handleToggleDespesaStatus(d)}
-                              title={
-                                isDespesaPaga
-                                  ? 'Clique para marcar como Pendente'
-                                  : 'Clique para marcar como Pago'
-                              }
-                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-all duration-150 cursor-pointer border shadow-sm select-none active:scale-95 group ${
-                                isDespesaPaga
-                                  ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-emerald-500/10'
-                                  : isDespesaCancelada
-                                    ? 'bg-slate-500/15 hover:bg-slate-500/25 text-slate-400 border-slate-500/30 hover:border-slate-500/50'
-                                    : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border-amber-500/30 hover:border-amber-500/50 hover:shadow-amber-500/10 hover:ring-1 hover:ring-amber-500/30'
-                              }`}
+                            return (
+                              <button
+                                type="button"
+                                disabled={isTogglingDespesa}
+                                onClick={() => handleToggleDespesaStatus(d)}
+                                title={
+                                  isDespesaPaga
+                                    ? 'Clique para marcar como Pendente'
+                                    : 'Clique para marcar como Pago'
+                                }
+                                className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-all duration-150 cursor-pointer border shadow-sm select-none active:scale-95 group ${
+                                  isDespesaPaga
+                                    ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-emerald-500/10'
+                                    : isDespesaCancelada
+                                      ? 'bg-slate-500/15 hover:bg-slate-500/25 text-slate-400 border-slate-500/30 hover:border-slate-500/50'
+                                      : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border-amber-500/30 hover:border-amber-500/50 hover:shadow-amber-500/10 hover:ring-1 hover:ring-amber-500/30'
+                                }`}
+                              >
+                                {isTogglingDespesa ? (
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                ) : isDespesaPaga ? (
+                                  <CheckCircle className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                                ) : isDespesaCancelada ? (
+                                  <XCircle className="w-3.5 h-3.5 text-slate-400 group-hover:scale-110 transition-transform" />
+                                ) : (
+                                  <AlertCircle className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                                )}
+                                <span className="font-semibold">
+                                  {isDespesaPaga
+                                    ? 'Pago'
+                                    : isDespesaCancelada
+                                      ? 'Cancelado'
+                                      : 'Pendente'}
+                                </span>
+                              </button>
+                            )
+                          })()}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-bold text-red-400 text-sm tabular-nums whitespace-nowrap">
+                          {formatCurrency(d.valor)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => handleOpenEditDespesa(d)}
+                              className="h-7 w-7 text-slate-400 hover:text-white"
                             >
-                              {isTogglingDespesa ? (
-                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              ) : isDespesaPaga ? (
-                                <CheckCircle className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
-                              ) : isDespesaCancelada ? (
-                                <XCircle className="w-3.5 h-3.5 text-slate-400 group-hover:scale-110 transition-transform" />
-                              ) : (
-                                <AlertCircle className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
-                              )}
-                              <span className="font-semibold">
-                                {isDespesaPaga
-                                  ? 'Pago'
-                                  : isDespesaCancelada
-                                    ? 'Cancelado'
-                                    : 'Pendente'}
-                              </span>
-                            </button>
-                          )
-                        })()}
-                      </td>
-                      <td className="py-3.5 px-4 text-right font-bold text-red-400 text-sm tabular-nums whitespace-nowrap">
-                        {formatCurrency(d.valor)}
-                      </td>
-                      <td className="py-3.5 px-4 text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleOpenEditDespesa(d)}
-                            className="h-7 w-7 text-slate-400 hover:text-white"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            title="Excluir despesa"
-                            onClick={() => handleOpenDeleteDespesa(d)}
-                            className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              title="Excluir despesa"
+                              onClick={() => handleOpenDeleteDespesa(d)}
+                              className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )
+                  })}
 
                   {despesas.length === 0 && (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-slate-500">
+                      <td colSpan={10} className="py-12 text-center text-slate-500">
                         Nenhuma despesa cadastrada.
                       </td>
                     </tr>
@@ -1675,6 +1890,88 @@ export default function FluxoCaixa() {
                 <Loader2 className="w-4 h-4 animate-spin" />
               ) : (
                 'Excluir Definitivamente'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Confirmação de Exclusão em Lote (Bulk Delete) */}
+      <Dialog open={isBulkDeleteModalOpen} onOpenChange={setIsBulkDeleteModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-sm p-6 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Excluir Itens Selecionados
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-300 mt-2">
+              Tem certeza que deseja excluir permanentemente{' '}
+              <strong className="text-white">
+                {activeTab === 'transacoes'
+                  ? `${selectedTransacoesIds.length} ${selectedTransacoesIds.length > 1 ? 'transações' : 'transação'}`
+                  : `${selectedDespesasIds.length} ${selectedDespesasIds.length > 1 ? 'despesas' : 'despesa'}`}
+              </strong>
+              ? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="my-3 p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs space-y-2">
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Quantidade selecionada:</span>
+              <span className="font-bold text-white">
+                {activeTab === 'transacoes'
+                  ? selectedTransacoesIds.length
+                  : selectedDespesasIds.length}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Valor total acumulado:</span>
+              <span className="font-bold text-red-400">
+                {formatCurrency(
+                  activeTab === 'transacoes'
+                    ? transacoes
+                        .filter((t) => selectedTransacoesIds.includes(t.id))
+                        .reduce((acc, curr) => acc + (curr.valor || 0), 0)
+                    : despesas
+                        .filter((d) => selectedDespesasIds.includes(d.id))
+                        .reduce((acc, curr) => acc + (curr.valor || 0), 0),
+                )}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingBulk}
+              onClick={() => setIsBulkDeleteModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletingBulk}
+              onClick={handleConfirmBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {isDeletingBulk ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                `Excluir ${
+                  activeTab === 'transacoes'
+                    ? selectedTransacoesIds.length
+                    : selectedDespesasIds.length
+                } ${
+                  (
+                    activeTab === 'transacoes'
+                      ? selectedTransacoesIds.length > 1
+                      : selectedDespesasIds.length > 1
+                  )
+                    ? 'Registros'
+                    : 'Registro'
+                }`
               )}
             </Button>
           </DialogFooter>
