@@ -122,12 +122,14 @@ export interface Transacao {
   observacoes?: string
   venda?: string
   comissao?: string
+  despesa?: string
   user: string
   created: string
   updated: string
   expand?: {
     venda?: Venda
     comissao?: Comissao
+    despesa?: Despesa
   }
 }
 

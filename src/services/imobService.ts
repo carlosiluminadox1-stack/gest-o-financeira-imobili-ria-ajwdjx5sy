@@ -798,7 +798,24 @@ export const TransacaoService = {
     return createdRecords
   },
   async update(id: string, data: Partial<Transacao>): Promise<Transacao> {
-    return await pb.collection('transacoes').update<Transacao>(id, data)
+    const updated = await pb.collection('transacoes').update<Transacao>(id, data)
+
+    // Se houver despesa vinculada e o status mudou, sincronizar despesa
+    if (updated.despesa && (data.status !== undefined || data.consolidado !== undefined)) {
+      try {
+        const nextStatus =
+          data.status === 'Pago' || (data.consolidado && data.status !== 'Pendente')
+            ? 'Pago'
+            : data.status === 'Cancelado'
+              ? 'Cancelado'
+              : 'Pendente'
+        await pb.collection('despesas').update(updated.despesa, { status: nextStatus })
+      } catch (e) {
+        console.warn('Erro ao sincronizar despesa a partir da transação:', e)
+      }
+    }
+
+    return updated
   },
   async delete(id: string): Promise<boolean> {
     return await pb.collection('transacoes').delete(id)
@@ -836,25 +853,31 @@ export const DespesaService = {
     })
   },
   async create(data: Partial<Despesa>, userId: string): Promise<Despesa> {
+    const isPaid = data.status === 'Pago'
     const record = await pb.collection('despesas').create<Despesa>({
       ...data,
       user: userId,
     })
 
-    // Automatically create exit transaction for the expense
-    await pb.collection('transacoes').create({
-      tipo: 'saida',
-      descricao: record.descricao,
-      categoria: record.categoria,
-      valor: record.valor,
-      data: record.data,
-      data_competencia: record.data_competencia || null,
-      data_vencimento: record.data_vencimento || null,
-      status: record.status || 'Pendente',
-      observacoes: record.observacoes || '',
-      consolidado: false,
-      user: userId,
-    })
+    // Automatically create exit transaction linked to the expense
+    try {
+      await pb.collection('transacoes').create({
+        tipo: 'saida',
+        descricao: record.descricao,
+        categoria: record.categoria,
+        valor: record.valor,
+        data: record.data,
+        data_competencia: record.data_competencia || null,
+        data_vencimento: record.data_vencimento || null,
+        status: record.status || 'Pendente',
+        observacoes: record.observacoes || '',
+        consolidado: isPaid,
+        despesa: record.id,
+        user: userId,
+      })
+    } catch (e) {
+      console.warn('Erro ao criar transação para despesa:', e)
+    }
 
     return record
   },
@@ -942,9 +965,51 @@ export const DespesaService = {
     return createdRecords
   },
   async update(id: string, data: Partial<Despesa>): Promise<Despesa> {
-    return await pb.collection('despesas').update<Despesa>(id, data)
+    const updated = await pb.collection('despesas').update<Despesa>(id, data)
+
+    // Sincronizar transações vinculadas se o status, valor, descricao, data ou categoria mudou
+    try {
+      const linkedTransacoes = await pb.collection('transacoes').getFullList<Transacao>({
+        filter: `despesa = "${id}"`,
+      })
+
+      const isPaid = data.status === 'Pago'
+      const tPayload: Partial<Transacao> = {}
+      if (data.status !== undefined) {
+        tPayload.status = data.status
+        tPayload.consolidado = isPaid
+      }
+      if (data.descricao !== undefined) tPayload.descricao = data.descricao
+      if (data.valor !== undefined) tPayload.valor = data.valor
+      if (data.categoria !== undefined) tPayload.categoria = data.categoria
+      if (data.data !== undefined) tPayload.data = data.data
+      if (data.data_competencia !== undefined) tPayload.data_competencia = data.data_competencia
+      if (data.data_vencimento !== undefined) tPayload.data_vencimento = data.data_vencimento
+
+      if (Object.keys(tPayload).length > 0) {
+        for (const lt of linkedTransacoes) {
+          await pb.collection('transacoes').update(lt.id, tPayload)
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao sincronizar transações vinculadas à despesa:', e)
+    }
+
+    return updated
   },
   async delete(id: string): Promise<boolean> {
+    // Excluir também transações vinculadas
+    try {
+      const linkedTransacoes = await pb.collection('transacoes').getFullList<Transacao>({
+        filter: `despesa = "${id}"`,
+      })
+      for (const lt of linkedTransacoes) {
+        await pb.collection('transacoes').delete(lt.id)
+      }
+    } catch (e) {
+      console.warn('Erro ao excluir transações vinculadas à despesa:', e)
+    }
+
     return await pb.collection('despesas').delete(id)
   },
 }

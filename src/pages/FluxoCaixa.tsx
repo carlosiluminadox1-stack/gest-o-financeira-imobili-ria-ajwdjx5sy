@@ -68,6 +68,7 @@ export default function FluxoCaixa() {
   // Filtros Transações
   const [searchTerm, setSearchTerm] = useState('')
   const [tipoFilter, setTipoFilter] = useState<string>('todos')
+  const [statusFilter, setStatusFilter] = useState<string>('todos')
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todos')
 
   // Modal Nova / Editar Transação
@@ -94,6 +95,11 @@ export default function FluxoCaixa() {
   // Loading individual de alternância de status
   const [togglingStatusId, setTogglingStatusId] = useState<string | null>(null)
   const [togglingDespesaStatusId, setTogglingDespesaStatusId] = useState<string | null>(null)
+
+  // Filtros Despesas
+  const [searchDespesaTerm, setSearchDespesaTerm] = useState('')
+  const [despesaStatusFilter, setDespesaStatusFilter] = useState<string>('todos')
+  const [despesaCategoriaFilter, setDespesaCategoriaFilter] = useState<string>('todos')
 
   // Modal Exclusão de Despesa
   const [deletingDespesa, setDeletingDespesa] = useState<Despesa | null>(null)
@@ -146,14 +152,24 @@ export default function FluxoCaixa() {
       if (tipoFilter !== 'todos' && t.tipo !== tipoFilter) return false
       if (categoriaFilter !== 'todos' && t.categoria !== categoriaFilter) return false
 
+      const isPago =
+        t.status === 'Pago' ||
+        (t.consolidado && t.status !== 'Pendente' && t.status !== 'Cancelado')
+      const isCancelado = t.status === 'Cancelado'
+      const isPendente = !isPago && !isCancelado
+
+      if (statusFilter === 'pago' && !isPago) return false
+      if (statusFilter === 'pendente' && !isPendente) return false
+      if (statusFilter === 'cancelado' && !isCancelado) return false
+
       if (searchTerm.trim()) {
         return t.descricao.toLowerCase().includes(searchTerm.toLowerCase())
       }
       return true
     })
-  }, [transacoes, start, end, tipoFilter, categoriaFilter, searchTerm])
+  }, [transacoes, start, end, tipoFilter, statusFilter, categoriaFilter, searchTerm])
 
-  // 3 Cartões de Saldo no Período
+  // Totais do Período (Entradas, Saídas, Saídas Pagas e Saídas Pendentes)
   const totalEntradas = useMemo(() => {
     return transacoes
       .filter((t) => {
@@ -163,14 +179,59 @@ export default function FluxoCaixa() {
       .reduce((sum, t) => sum + (t.valor || 0), 0)
   }, [transacoes, start, end])
 
-  const totalSaidas = useMemo(() => {
-    return transacoes
-      .filter((t) => {
-        const d = new Date(t.data)
-        return d >= start && d <= end && t.tipo === 'saida'
-      })
-      .reduce((sum, t) => sum + (t.valor || 0), 0)
-  }, [transacoes, start, end])
+  const {
+    totalSaidas,
+    totalSaidasPagas,
+    totalSaidasPendentes,
+    totalDespesasPagas,
+    totalDespesasPendentes,
+  } = useMemo(() => {
+    // Totais de transações de saída no período
+    let saidasTotal = 0
+    let saidasPagas = 0
+    let saidasPendentes = 0
+
+    transacoes.forEach((t) => {
+      const d = new Date(t.data)
+      if (d >= start && d <= end && t.tipo === 'saida') {
+        const val = t.valor || 0
+        saidasTotal += val
+        const isPago =
+          t.status === 'Pago' ||
+          (t.consolidado && t.status !== 'Pendente' && t.status !== 'Cancelado')
+        if (isPago) {
+          saidasPagas += val
+        } else if (t.status !== 'Cancelado') {
+          saidasPendentes += val
+        }
+      }
+    })
+
+    // Totais de despesas no período (por data ou vencimento)
+    let despPagas = 0
+    let despPendentes = 0
+    despesas.forEach((d) => {
+      const refDateStr = d.data_vencimento || d.data
+      const dt = refDateStr ? new Date(refDateStr) : null
+      const inPeriod = !dt || (dt >= start && dt <= end)
+      if (inPeriod) {
+        const val = d.valor || 0
+        if (d.status === 'Pago') {
+          despPagas += val
+        } else if (d.status !== 'Cancelado') {
+          despPendentes += val
+        }
+      }
+    })
+
+    return {
+      totalSaidas: saidasTotal,
+      totalSaidasPagas: saidasPagas,
+      totalSaidasPendentes: saidasPendentes,
+      totalDespesasPagas: despPagas,
+      totalDespesasPendentes: despPendentes,
+    }
+  }, [transacoes, despesas, start, end])
 
   const saldoPeriodo = totalEntradas - totalSaidas
 
@@ -292,10 +353,34 @@ export default function FluxoCaixa() {
     )
   }
 
+  // Filtragem Despesas por período e critérios
+  const despesasFiltradas = useMemo(() => {
+    return despesas.filter((d) => {
+      const refDateStr = d.data_vencimento || d.data
+      const dt = refDateStr ? new Date(refDateStr) : null
+      if (dt && (dt < start || dt > end)) return false
+
+      if (despesaCategoriaFilter !== 'todos' && d.categoria !== despesaCategoriaFilter) return false
+
+      const isPago = d.status === 'Pago'
+      const isCancelado = d.status === 'Cancelado'
+      const isPendente = !isPago && !isCancelado
+
+      if (despesaStatusFilter === 'pago' && !isPago) return false
+      if (despesaStatusFilter === 'pendente' && !isPendente) return false
+      if (despesaStatusFilter === 'cancelado' && !isCancelado) return false
+
+      if (searchDespesaTerm.trim()) {
+        return d.descricao.toLowerCase().includes(searchDespesaTerm.toLowerCase())
+      }
+      return true
+    })
+  }, [despesas, start, end, despesaStatusFilter, despesaCategoriaFilter, searchDespesaTerm])
+
   // Ações de seleção múltipla para Despesas
   const handleSelectAllDespesas = (checked: boolean) => {
     if (checked) {
-      setSelectedDespesasIds(despesas.map((d) => d.id))
+      setSelectedDespesasIds(despesasFiltradas.map((d) => d.id))
     } else {
       setSelectedDespesasIds([])
     }
@@ -497,12 +582,21 @@ export default function FluxoCaixa() {
 
     setTogglingStatusId(t.id)
 
-    // Atualização otimista imediata na UI
+    // Atualização otimista imediata na UI tanto em transações quanto em despesas sincronizadas
+    const previousTransacoes = transacoes
+    const previousDespesas = despesas
+
     setTransacoes((prev) =>
       prev.map((item) =>
         item.id === t.id ? { ...item, status: nextStatus, consolidado: nextConsolidado } : item,
       ),
     )
+
+    if (t.despesa) {
+      setDespesas((prev) =>
+        prev.map((d) => (d.id === t.despesa ? { ...d, status: nextStatus } : d)),
+      )
+    }
 
     try {
       await TransacaoService.update(t.id, {
@@ -519,7 +613,8 @@ export default function FluxoCaixa() {
       console.error(err)
       toast.error('Erro ao atualizar status da transação.')
       // Reverter em caso de falha
-      setTransacoes((prev) => prev.map((item) => (item.id === t.id ? t : item)))
+      setTransacoes(previousTransacoes)
+      setDespesas(previousDespesas)
     } finally {
       setTogglingStatusId(null)
     }
@@ -578,12 +673,28 @@ export default function FluxoCaixa() {
   const handleToggleDespesaStatus = async (d: Despesa) => {
     const isCurrentlyPaid = d.status === 'Pago'
     const nextStatus = isCurrentlyPaid ? 'Pendente' : 'Pago'
+    const nextConsolidado = !isCurrentlyPaid
 
     setTogglingDespesaStatusId(d.id)
 
-    // Atualização otimista imediata na UI
+    // Atualização otimista imediata na UI tanto em despesas quanto em transações vinculadas
+    const previousDespesas = despesas
+    const previousTransacoes = transacoes
+
     setDespesas((prev) =>
       prev.map((item) => (item.id === d.id ? { ...item, status: nextStatus } : item)),
+    )
+
+    setTransacoes((prev) =>
+      prev.map((t) =>
+        t.despesa === d.id ||
+        (!t.despesa &&
+          t.tipo === 'saida' &&
+          t.descricao === d.descricao &&
+          Math.abs((t.valor || 0) - (d.valor || 0)) < 0.01)
+          ? { ...t, status: nextStatus, consolidado: nextConsolidado }
+          : t,
+      ),
     )
 
     try {
@@ -597,7 +708,8 @@ export default function FluxoCaixa() {
       console.error(err)
       toast.error('Erro ao atualizar status da despesa.')
       // Reverter estado local
-      setDespesas((prev) => prev.map((item) => (item.id === d.id ? d : item)))
+      setDespesas(previousDespesas)
+      setTransacoes(previousTransacoes)
     } finally {
       setTogglingDespesaStatusId(null)
     }
@@ -808,66 +920,105 @@ export default function FluxoCaixa() {
         </div>
       </div>
 
-      {/* 3 Cartões de Saldo */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      {/* Cartões de Métricas e Totais do Período */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Entradas */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Total de Entradas
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
-              <ArrowUpRight className="w-4 h-4" />
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Total de Entradas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
+                <ArrowUpRight className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="text-2xl font-black text-emerald-400 tracking-tight">
+              + {formatCurrency(totalEntradas)}
             </div>
           </div>
-          <div className="text-2xl font-black text-emerald-400 tracking-tight">
-            + {formatCurrency(totalEntradas)}
-          </div>
-          <p className="text-[11px] text-slate-500 mt-2">Comissões recebidas e aportes</p>
-        </div>
-
-        {/* Saídas */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Total de Saídas
-            </span>
-            <div className="w-8 h-8 rounded-lg bg-[#E63946]/15 flex items-center justify-center text-red-400">
-              <ArrowDownRight className="w-4 h-4" />
-            </div>
-          </div>
-          <div className="text-2xl font-black text-red-400 tracking-tight">
-            - {formatCurrency(totalSaidas)}
-          </div>
-          <p className="text-[11px] text-slate-500 mt-2">
-            Despesas operacionais, impostos e repasses
+          <p className="text-[11px] text-slate-500 mt-3 pt-2 border-t border-[#1C2333]">
+            Comissões recebidas e aportes
           </p>
         </div>
 
-        {/* Saldo do Período */}
-        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              Saldo Líquido
-            </span>
-            <div
-              className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                saldoPeriodo >= 0
-                  ? 'bg-emerald-500/15 text-emerald-400'
-                  : 'bg-red-500/15 text-red-400'
-              }`}
-            >
-              <DollarSign className="w-4 h-4" />
+        {/* Total Geral de Saídas */}
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Total de Saídas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-[#E63946]/15 flex items-center justify-center text-red-400">
+                <ArrowDownRight className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="text-2xl font-black text-red-400 tracking-tight">
+              - {formatCurrency(totalSaidas)}
             </div>
           </div>
-          <div
-            className={`text-2xl font-black tracking-tight ${
-              saldoPeriodo >= 0 ? 'text-emerald-400' : 'text-red-400'
-            }`}
-          >
-            {formatCurrency(saldoPeriodo)}
+          <div className="flex items-center justify-between text-[11px] text-slate-400 mt-3 pt-2 border-t border-[#1C2333]">
+            <span className="text-emerald-400 font-medium">
+              Pago: {formatCurrency(totalSaidasPagas)}
+            </span>
+            <span className="text-amber-400 font-medium">
+              Aberto: {formatCurrency(totalSaidasPendentes)}
+            </span>
           </div>
-          <p className="text-[11px] text-slate-500 mt-2">Resultado no período selecionado</p>
+        </div>
+
+        {/* Saídas Pagas (Consolidadas) */}
+        <div className="bg-[#121722] border border-emerald-500/20 rounded-2xl p-5 shadow-lg flex flex-col justify-between relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl -mr-6 -mt-6 pointer-events-none" />
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-emerald-300 uppercase tracking-wider flex items-center gap-1.5">
+                <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                Saídas Pagas
+              </span>
+              <div className="w-8 h-8 rounded-lg bg-emerald-500/15 flex items-center justify-center text-emerald-400">
+                <CheckCircle className="w-4 h-4" />
+              </div>
+            </div>
+            <div className="text-2xl font-black text-emerald-400 tracking-tight">
+              {formatCurrency(totalSaidasPagas)}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 mt-3 pt-2 border-t border-[#1C2333]">
+            {activeTab === 'despesas'
+              ? `Despesas pagas: ${formatCurrency(totalDespesasPagas)}`
+              : 'Valores já liquidados / baixados'}
+          </p>
+        </div>
+
+        {/* Saldo Líquido do Período */}
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                Saldo Líquido
+              </span>
+              <div
+                className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                  saldoPeriodo >= 0
+                    ? 'bg-emerald-500/15 text-emerald-400'
+                    : 'bg-red-500/15 text-red-400'
+                }`}
+              >
+                <DollarSign className="w-4 h-4" />
+              </div>
+            </div>
+            <div
+              className={`text-2xl font-black tracking-tight ${
+                saldoPeriodo >= 0 ? 'text-emerald-400' : 'text-red-400'
+              }`}
+            >
+              {formatCurrency(saldoPeriodo)}
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-500 mt-3 pt-2 border-t border-[#1C2333]">
+            Entradas (-) Saídas totais no período
+          </p>
         </div>
       </div>
 
@@ -925,7 +1076,7 @@ export default function FluxoCaixa() {
               : 'bg-[#121722] text-slate-400 hover:text-white'
           }`}
         >
-          Gestão de Despesas & Recorrências ({despesas.length})
+          Gestão de Despesas & Recorrências ({despesasFiltradas.length})
         </button>
       </div>
 
@@ -1021,6 +1172,17 @@ export default function FluxoCaixa() {
                   </button>
                 ))}
               </div>
+
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none"
+              >
+                <option value="todos">Todos Status</option>
+                <option value="pago">Apenas Pagos / Consolidados</option>
+                <option value="pendente">Apenas Pendentes / Abertos</option>
+                <option value="cancelado">Cancelados</option>
+              </select>
 
               <select
                 value={categoriaFilter}
@@ -1224,6 +1386,47 @@ export default function FluxoCaixa() {
       {/* ABA 2: DESPESAS */}
       {activeTab === 'despesas' && (
         <div className="space-y-4">
+          {/* Filtros de Despesas */}
+          <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 shadow-md">
+            <div className="relative flex-1 max-w-md">
+              <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
+              <Input
+                type="text"
+                placeholder="Buscar despesa por descrição..."
+                value={searchDespesaTerm}
+                onChange={(e) => setSearchDespesaTerm(e.target.value)}
+                className="bg-[#0B0E14] border-[#232A3B] pl-9 text-xs text-slate-100 placeholder:text-slate-500 h-9"
+              />
+            </div>
+
+            <div className="flex items-center gap-2.5 overflow-x-auto pb-1 md:pb-0">
+              <select
+                value={despesaStatusFilter}
+                onChange={(e) => setDespesaStatusFilter(e.target.value)}
+                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none"
+              >
+                <option value="todos">Todos Status</option>
+                <option value="pago">Apenas Pagas</option>
+                <option value="pendente">Apenas Pendentes</option>
+                <option value="cancelado">Canceladas</option>
+              </select>
+
+              <select
+                value={despesaCategoriaFilter}
+                onChange={(e) => setDespesaCategoriaFilter(e.target.value)}
+                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none"
+              >
+                <option value="todos">Todas Categorias</option>
+                <option value="aluguel">Aluguel</option>
+                <option value="marketing">Marketing</option>
+                <option value="salarios">Salários</option>
+                <option value="utilidades">Utilidades</option>
+                <option value="manutencao">Manutenção</option>
+                <option value="outros">Outros</option>
+              </select>
+            </div>
+          </div>
+
           <div className="bg-[#121722] border border-[#232A3B] rounded-2xl shadow-lg overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-left text-xs">
@@ -1232,7 +1435,8 @@ export default function FluxoCaixa() {
                     <th className="py-3.5 px-4 w-10 text-center">
                       <Checkbox
                         checked={
-                          despesas.length > 0 && selectedDespesasIds.length === despesas.length
+                          despesasFiltradas.length > 0 &&
+                          selectedDespesasIds.length === despesasFiltradas.length
                             ? true
                             : selectedDespesasIds.length > 0
                               ? 'indeterminate'
@@ -1255,7 +1459,7 @@ export default function FluxoCaixa() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[#232A3B]">
-                  {despesas.map((d) => {
+                  {despesasFiltradas.map((d) => {
                     const isSelected = selectedDespesasIds.includes(d.id)
                     return (
                       <tr
@@ -1381,10 +1585,10 @@ export default function FluxoCaixa() {
                     )
                   })}
 
-                  {despesas.length === 0 && (
+                  {despesasFiltradas.length === 0 && (
                     <tr>
                       <td colSpan={10} className="py-12 text-center text-slate-500">
-                        Nenhuma despesa cadastrada.
+                        Nenhuma despesa encontrada no período/filtro selecionado.
                       </td>
                     </tr>
                   )}

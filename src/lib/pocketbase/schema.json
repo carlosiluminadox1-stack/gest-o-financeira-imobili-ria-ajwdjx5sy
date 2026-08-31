@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-08-31T18:34:46.790Z",
+  "generatedAt": "2026-08-31T18:52:04.678Z",
   "collections": [
     {
       "name": "users",
@@ -519,6 +519,13 @@
           "type": "text",
           "required": false,
           "system": false
+        },
+        {
+          "name": "despesa",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "despesas"
         }
       ],
       "indexes": [
