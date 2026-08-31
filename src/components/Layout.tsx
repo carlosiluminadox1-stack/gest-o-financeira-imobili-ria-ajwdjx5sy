@@ -101,11 +101,12 @@ export default function Layout() {
     return name.slice(0, 2).toUpperCase()
   }
 
-  const periodoLabels: Record<PeriodoGlobal, string> = {
+  const periodoLabels: Record<string, string> = {
     mes: 'Mês atual',
     trimestre: 'Trimestre atual',
     semestre: 'Semestre atual',
     ano: 'Ano atual',
+    tudo: 'Todo o período',
   }
 
   return (

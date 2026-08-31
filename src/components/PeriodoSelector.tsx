@@ -43,7 +43,7 @@ export const PeriodoSelector: React.FC<PeriodoSelectorProps> = ({ variant = 'des
     setIsOpen(false)
   }
 
-  const handleSelectRelative = (tipo: 'mes' | 'trimestre' | 'semestre' | 'ano') => {
+  const handleSelectRelative = (tipo: 'mes' | 'trimestre' | 'semestre' | 'ano' | 'tudo') => {
     selecionarPeriodoRelativo(tipo)
     setIsOpen(false)
   }
@@ -117,6 +117,7 @@ export const PeriodoSelector: React.FC<PeriodoSelectorProps> = ({ variant = 'des
               { id: 'trimestre', label: 'Trimestre atual' },
               { id: 'semestre', label: 'Semestre atual' },
               { id: 'ano', label: 'Ano atual' },
+              { id: 'tudo', label: 'Todo o período', fullWidth: true },
             ].map((item) => {
               const isSelected = periodo === item.id
               return (
@@ -124,12 +125,14 @@ export const PeriodoSelector: React.FC<PeriodoSelectorProps> = ({ variant = 'des
                   key={item.id}
                   onClick={() => handleSelectRelative(item.id as any)}
                   className={`flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all text-left ${
+                    item.fullWidth ? 'col-span-2' : ''
+                  } ${
                     isSelected
                       ? 'bg-[#E63946] text-white font-bold shadow-md shadow-[#E63946]/20'
                       : 'bg-[#121722] text-slate-300 hover:bg-[#1A2234] hover:text-white border border-[#232A3B]/60'
                   }`}
                 >
-                  <span>{item.label}</span>
+                  <span className={item.fullWidth ? 'font-semibold' : ''}>{item.label}</span>
                   {isSelected && <Check className="w-3.5 h-3.5" />}
                 </button>
               )

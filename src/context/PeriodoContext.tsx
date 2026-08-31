@@ -48,7 +48,7 @@ interface PeriodoContextType {
   selectedMes: number // 1 a 12
   setSelectedMes: (mes: number) => void
   selecionarMesEspecifico: (ano: number, mes: number) => void
-  selecionarPeriodoRelativo: (tipo: 'mes' | 'trimestre' | 'semestre' | 'ano') => void
+  selecionarPeriodoRelativo: (tipo: 'mes' | 'trimestre' | 'semestre' | 'ano' | 'tudo') => void
   getPeriodoDates: (p?: PeriodoGlobal) => PeriodoInfo
   periodoLabel: string
   isCustomMonth: boolean
@@ -124,6 +124,14 @@ export const PeriodoProvider: React.FC<{ children: React.ReactNode }> = ({ child
           ano: currentYear,
           isCustomMonth: false,
         }
+      case 'tudo':
+        return {
+          start: new Date(2000, 0, 1, 0, 0, 0, 0),
+          end: new Date(2099, 11, 31, 23, 59, 59, 999),
+          label: 'Todo o período',
+          ano: currentYear,
+          isCustomMonth: false,
+        }
       default:
         // Fallback para mês atual se string desconhecida
         return {
@@ -154,7 +162,7 @@ export const PeriodoProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setPeriodoState(key)
   }
 
-  const selecionarPeriodoRelativo = (tipo: 'mes' | 'trimestre' | 'semestre' | 'ano') => {
+  const selecionarPeriodoRelativo = (tipo: 'mes' | 'trimestre' | 'semestre' | 'ano' | 'tudo') => {
     setPeriodoState(tipo)
   }
 

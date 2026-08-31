@@ -372,9 +372,9 @@ export default function FluxoCaixa() {
           toast.success(
             `${created.length} parcelas geradas com sucesso! Algumas podem estar ocultas pelo filtro de período atual.`,
             {
-              duration: 6000,
+              duration: 7000,
               description:
-                'Use o seletor de período no topo para navegar entre anos ou meses e visualizar as parcelas futuras.',
+                'Selecione "Todo o período" no seletor de período no topo para visualizar todas as parcelas de uma vez.',
             },
           )
         } else {
@@ -615,9 +615,9 @@ export default function FluxoCaixa() {
           toast.success(
             `${created.length} parcelas geradas. Algumas podem estar ocultas pelo filtro de período atual.`,
             {
-              duration: 6000,
+              duration: 7000,
               description:
-                'Use o seletor de período no topo da tela para visualizar parcelas de meses e anos futuros.',
+                'Selecione "Todo o período" no seletor de período no topo para visualizar todas as parcelas de uma vez.',
             },
           )
         } else {

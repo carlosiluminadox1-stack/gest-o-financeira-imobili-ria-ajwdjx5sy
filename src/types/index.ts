@@ -225,4 +225,4 @@ export interface SystemUser {
   updated: string
 }
 
-export type PeriodoGlobal = 'mes' | 'trimestre' | 'semestre' | 'ano' | string
+export type PeriodoGlobal = 'mes' | 'trimestre' | 'semestre' | 'ano' | 'tudo' | string
