@@ -538,7 +538,10 @@ export default function FluxoCaixa() {
         await DespesaService.update(editingDespesa.id, payload)
         toast.success('Despesa atualizada com sucesso!')
       } else {
-        const mesesRecorrencia = Math.max(1, Math.floor(Number(dRecorrenciaMeses) || 1))
+        const mesesRecorrencia = Math.max(
+          1,
+          Math.min(60, Math.floor(Number(dRecorrenciaMeses) || 1)),
+        )
 
         if (mesesRecorrencia > 1) {
           const created = await DespesaService.createRecorrente(
