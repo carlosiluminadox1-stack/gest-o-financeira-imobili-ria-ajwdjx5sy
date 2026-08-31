@@ -88,6 +88,12 @@ export default function FluxoCaixa() {
 
   // Loading individual de alternância de status
   const [togglingStatusId, setTogglingStatusId] = useState<string | null>(null)
+  const [togglingDespesaStatusId, setTogglingDespesaStatusId] = useState<string | null>(null)
+
+  // Modal Exclusão de Despesa
+  const [deletingDespesa, setDeletingDespesa] = useState<Despesa | null>(null)
+  const [isDeleteDespesaModalOpen, setIsDeleteDespesaModalOpen] = useState(false)
+  const [isDeletingDespesa, setIsDeletingDespesa] = useState(false)
 
   // Modal Nova Despesa
   const [isDespesaModalOpen, setIsDespesaModalOpen] = useState(false)
@@ -229,6 +235,13 @@ export default function FluxoCaixa() {
   // Formata a exibição da competência na tabela como nome do mês e ano (ex: agosto de 2026)
   const formatCompetencia = (dateStr?: string | null): string => {
     if (!dateStr) return '—'
+    // Suportar tanto ISO completo quanto formato YYYY-MM
+    if (typeof dateStr === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(dateStr)) {
+      const [anoStr, mesStr] = dateStr.split('-')
+      const mesIdx = parseInt(mesStr, 10) - 1
+      const mesNome = MESES_NOMES[mesIdx] ? MESES_NOMES[mesIdx].toLowerCase() : ''
+      return mesNome ? `${mesNome} de ${anoStr}` : '—'
+    }
     const d = new Date(dateStr)
     if (isNaN(d.getTime())) return '—'
     const mesIdx = d.getUTCMonth()
@@ -346,7 +359,7 @@ export default function FluxoCaixa() {
         if (tTipo === 'saida' && mesesRecorrencia > 1) {
           const created = await TransacaoService.createRecorrente({
             tipo: 'saida',
-            descricao: tDescricao.trim(),
+            descricao: tDescricao.trim() || 'Transação',
             categoria: tCategoria,
             valor: Number(tValor),
             data: tData,
@@ -356,7 +369,14 @@ export default function FluxoCaixa() {
             user: user.id,
           })
           setTransacoes((prev) => [...created, ...prev])
-          toast.success(`${created.length} parcelas de transação geradas com sucesso!`)
+          toast.success(
+            `${created.length} parcelas geradas com sucesso! Algumas podem estar ocultas pelo filtro de período atual.`,
+            {
+              duration: 6000,
+              description:
+                'Use o seletor de período no topo para navegar entre anos ou meses e visualizar as parcelas futuras.',
+            },
+          )
         } else {
           const isPaid = tStatus === 'Pago'
           const created = await TransacaoService.create({
@@ -476,6 +496,35 @@ export default function FluxoCaixa() {
     setIsDespesaModalOpen(true)
   }
 
+  // Alternar Status Direto na Aba Despesas (Toggle Pago <-> Pendente)
+  const handleToggleDespesaStatus = async (d: Despesa) => {
+    const isCurrentlyPaid = d.status === 'Pago'
+    const nextStatus = isCurrentlyPaid ? 'Pendente' : 'Pago'
+
+    setTogglingDespesaStatusId(d.id)
+
+    // Atualização otimista imediata na UI
+    setDespesas((prev) =>
+      prev.map((item) => (item.id === d.id ? { ...item, status: nextStatus } : item)),
+    )
+
+    try {
+      await DespesaService.update(d.id, { status: nextStatus })
+      if (nextStatus === 'Pago') {
+        toast.success(`Despesa "${d.descricao}" marcada como PAGA!`)
+      } else {
+        toast.info(`Despesa "${d.descricao}" marcada como PENDENTE.`)
+      }
+    } catch (err) {
+      console.error(err)
+      toast.error('Erro ao atualizar status da despesa.')
+      // Reverter estado local
+      setDespesas((prev) => prev.map((item) => (item.id === d.id ? d : item)))
+    } finally {
+      setTogglingDespesaStatusId(null)
+    }
+  }
+
   const handleOpenEditDespesa = (d: Despesa) => {
     setEditingDespesa(d)
     setDDescricao(d.descricao)
@@ -521,7 +570,7 @@ export default function FluxoCaixa() {
           ).toISOString()
         }
 
-        const payload = {
+        const payload: Partial<Despesa> = {
           descricao: dDescricao.trim() || 'Despesa',
           categoria: dCategoria,
           valor: Number(dValor),
@@ -535,7 +584,11 @@ export default function FluxoCaixa() {
           ativa: dAtiva,
         }
 
-        await DespesaService.update(editingDespesa.id, payload)
+        const updated = await DespesaService.update(editingDespesa.id, payload)
+        // Atualizar estado local de despesas imediatamente
+        setDespesas((prev) =>
+          prev.map((item) => (item.id === editingDespesa.id ? { ...item, ...updated } : item)),
+        )
         toast.success('Despesa atualizada com sucesso!')
       } else {
         const mesesRecorrencia = Math.max(
@@ -558,7 +611,15 @@ export default function FluxoCaixa() {
             },
             user.id,
           )
-          toast.success(`${created.length} parcelas de despesa geradas com sucesso!`)
+          setDespesas((prev) => [...created, ...prev])
+          toast.success(
+            `${created.length} parcelas geradas. Algumas podem estar ocultas pelo filtro de período atual.`,
+            {
+              duration: 6000,
+              description:
+                'Use o seletor de período no topo da tela para visualizar parcelas de meses e anos futuros.',
+            },
+          )
         } else {
           let compIso: string | undefined = undefined
           if (dDataCompetencia) {
@@ -575,7 +636,7 @@ export default function FluxoCaixa() {
 
           const descFinal = dDescricao.trim() || 'Despesa'
 
-          await DespesaService.create(
+          const created = await DespesaService.create(
             {
               descricao: descFinal,
               categoria: dCategoria,
@@ -590,10 +651,12 @@ export default function FluxoCaixa() {
             },
             user.id,
           )
+          setDespesas((prev) => [created, ...prev])
           toast.success('Despesa cadastrada e transação de saída gerada!')
         }
       }
       setIsDespesaModalOpen(false)
+      setEditingDespesa(null)
       loadData()
     } catch (err) {
       console.error(err)
@@ -603,14 +666,30 @@ export default function FluxoCaixa() {
     }
   }
 
-  const handleDeleteDespesa = async (id: string) => {
-    if (!confirm('Deseja realmente remover esta despesa?')) return
+  // Abrir Modal de Exclusão de Despesa
+  const handleOpenDeleteDespesa = (d: Despesa) => {
+    setDeletingDespesa(d)
+    setIsDeleteDespesaModalOpen(true)
+  }
+
+  // Confirmar Exclusão de Despesa
+  const handleConfirmDeleteDespesa = async () => {
+    if (!deletingDespesa) return
+
+    setIsDeletingDespesa(true)
+    const idToDelete = deletingDespesa.id
+
     try {
-      await DespesaService.delete(id)
-      setDespesas((prev) => prev.filter((item) => item.id !== id))
-      toast.success('Despesa removida!')
+      await DespesaService.delete(idToDelete)
+      setDespesas((prev) => prev.filter((item) => item.id !== idToDelete))
+      toast.success('Despesa removida com sucesso!')
+      setIsDeleteDespesaModalOpen(false)
+      setDeletingDespesa(null)
     } catch (err) {
+      console.error(err)
       toast.error('Erro ao excluir despesa.')
+    } finally {
+      setIsDeletingDespesa(false)
     }
   }
 
@@ -898,24 +977,26 @@ export default function FluxoCaixa() {
                                 ? 'Clique para marcar como Aberto / Pendente'
                                 : 'Clique para marcar como Pago / Baixar'
                             }
-                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-semibold transition-all cursor-pointer border ${
+                            className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-all duration-150 cursor-pointer border shadow-sm select-none active:scale-95 group ${
                               isPago
-                                ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/25'
+                                ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-emerald-500/10'
                                 : isCancelado
-                                  ? 'bg-slate-500/15 text-slate-400 border-slate-500/30 hover:bg-slate-500/25'
-                                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30 hover:bg-amber-500/25'
+                                  ? 'bg-slate-500/15 hover:bg-slate-500/25 text-slate-400 border-slate-500/30 hover:border-slate-500/50'
+                                  : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border-amber-500/30 hover:border-amber-500/50 hover:shadow-amber-500/10 hover:ring-1 hover:ring-amber-500/30'
                             }`}
                           >
                             {isToggling ? (
                               <Loader2 className="w-3.5 h-3.5 animate-spin" />
                             ) : isPago ? (
-                              <CheckCircle className="w-3.5 h-3.5 text-emerald-400" />
+                              <CheckCircle className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
                             ) : isCancelado ? (
-                              <XCircle className="w-3.5 h-3.5 text-slate-400" />
+                              <XCircle className="w-3.5 h-3.5 text-slate-400 group-hover:scale-110 transition-transform" />
                             ) : (
-                              <AlertCircle className="w-3.5 h-3.5 text-amber-400" />
+                              <AlertCircle className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
                             )}
-                            <span>{isPago ? 'Pago' : isCancelado ? 'Cancelado' : 'Aberto'}</span>
+                            <span className="font-semibold">
+                              {isPago ? 'Pago' : isCancelado ? 'Cancelado' : 'Aberto'}
+                            </span>
                           </button>
                         </td>
                         <td
@@ -1015,17 +1096,48 @@ export default function FluxoCaixa() {
                         )}
                       </td>
                       <td className="py-3.5 px-4 text-center">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold ${
-                            d.status === 'Pago'
-                              ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                              : d.status === 'Cancelado'
-                                ? 'bg-slate-500/15 text-slate-400 border border-slate-500/20'
-                                : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                          }`}
-                        >
-                          {d.status || (d.ativa ? 'Pendente' : 'Inativa')}
-                        </span>
+                        {(() => {
+                          const isDespesaPaga = d.status === 'Pago'
+                          const isDespesaCancelada = d.status === 'Cancelado'
+                          const isTogglingDespesa = togglingDespesaStatusId === d.id
+
+                          return (
+                            <button
+                              type="button"
+                              disabled={isTogglingDespesa}
+                              onClick={() => handleToggleDespesaStatus(d)}
+                              title={
+                                isDespesaPaga
+                                  ? 'Clique para marcar como Pendente'
+                                  : 'Clique para marcar como Pago'
+                              }
+                              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-bold transition-all duration-150 cursor-pointer border shadow-sm select-none active:scale-95 group ${
+                                isDespesaPaga
+                                  ? 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border-emerald-500/30 hover:border-emerald-500/50 hover:shadow-emerald-500/10'
+                                  : isDespesaCancelada
+                                    ? 'bg-slate-500/15 hover:bg-slate-500/25 text-slate-400 border-slate-500/30 hover:border-slate-500/50'
+                                    : 'bg-amber-500/15 hover:bg-amber-500/25 text-amber-400 border-amber-500/30 hover:border-amber-500/50 hover:shadow-amber-500/10 hover:ring-1 hover:ring-amber-500/30'
+                              }`}
+                            >
+                              {isTogglingDespesa ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              ) : isDespesaPaga ? (
+                                <CheckCircle className="w-3.5 h-3.5 text-emerald-400 group-hover:scale-110 transition-transform" />
+                              ) : isDespesaCancelada ? (
+                                <XCircle className="w-3.5 h-3.5 text-slate-400 group-hover:scale-110 transition-transform" />
+                              ) : (
+                                <AlertCircle className="w-3.5 h-3.5 text-amber-400 group-hover:scale-110 transition-transform" />
+                              )}
+                              <span className="font-semibold">
+                                {isDespesaPaga
+                                  ? 'Pago'
+                                  : isDespesaCancelada
+                                    ? 'Cancelado'
+                                    : 'Pendente'}
+                              </span>
+                            </button>
+                          )
+                        })()}
                       </td>
                       <td className="py-3.5 px-4 text-right font-bold text-red-400 text-sm tabular-nums whitespace-nowrap">
                         {formatCurrency(d.valor)}
@@ -1043,7 +1155,8 @@ export default function FluxoCaixa() {
                           <Button
                             variant="ghost"
                             size="icon"
-                            onClick={() => handleDeleteDespesa(d.id)}
+                            title="Excluir despesa"
+                            onClick={() => handleOpenDeleteDespesa(d)}
                             className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1514,6 +1627,57 @@ export default function FluxoCaixa() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Confirmação de Exclusão de Despesa */}
+      <Dialog open={isDeleteDespesaModalOpen} onOpenChange={setIsDeleteDespesaModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-sm p-6 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Excluir Despesa
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-300 mt-2">
+              Tem certeza que deseja remover permanentemente esta despesa?
+            </DialogDescription>
+          </DialogHeader>
+
+          {deletingDespesa && (
+            <div className="my-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs space-y-1">
+              <p className="font-semibold text-slate-100">{deletingDespesa.descricao}</p>
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Valor:</span>
+                <span className="font-bold text-red-400">
+                  {formatCurrency(deletingDespesa.valor)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingDespesa}
+              onClick={() => setIsDeleteDespesaModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletingDespesa}
+              onClick={handleConfirmDeleteDespesa}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {isDeletingDespesa ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                'Excluir Definitivamente'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
