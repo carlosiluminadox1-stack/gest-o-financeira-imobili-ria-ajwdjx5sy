@@ -14,6 +14,7 @@ import {
   Loader2,
   X,
   Calendar,
+  CheckSquare,
 } from 'lucide-react'
 import { VendaService, CorretorService, ConfigService } from '@/services/imobService'
 import {
@@ -30,6 +31,7 @@ import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -47,6 +49,11 @@ export default function Vendas() {
   const [corretores, setCorretores] = useState<Corretor[]>([])
   const [config, setConfig] = useState<Configuracoes | null>(null)
   const [loading, setLoading] = useState(true)
+
+  // Seleção múltipla (checkboxes)
+  const [selectedVendasIds, setSelectedVendasIds] = useState<string[]>([])
+  const [isBulkDeleteModalOpen, setIsBulkDeleteModalOpen] = useState(false)
+  const [isDeletingBulk, setIsDeletingBulk] = useState(false)
 
   // Filtros & Busca
   const [searchTerm, setSearchTerm] = useState('')
@@ -101,8 +108,9 @@ export default function Vendas() {
   const [formStatus, setFormStatus] = useState<VendaStatus>('realizada')
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
-  // Modal Exclusão
-  const [deleteId, setDeleteId] = useState<string | null>(null)
+  // Modal Exclusão Individual
+  const [deletingVenda, setDeletingVenda] = useState<Venda | null>(null)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
 
   const loadData = async () => {
@@ -243,6 +251,46 @@ export default function Vendas() {
       minimumFractionDigits: 2,
       maximumFractionDigits: 2,
     })
+  }
+
+  // Ações de seleção múltipla para Vendas
+  const handleSelectAllVendas = (checked: boolean) => {
+    if (checked) {
+      setSelectedVendasIds(filteredVendas.map((v) => v.id))
+    } else {
+      setSelectedVendasIds([])
+    }
+  }
+
+  const handleToggleSelectVenda = (id: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation()
+    setSelectedVendasIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id],
+    )
+  }
+
+  // Exclusão em lote (Bulk Delete)
+  const handleOpenBulkDelete = () => {
+    setIsBulkDeleteModalOpen(true)
+  }
+
+  const handleConfirmBulkDelete = async () => {
+    setIsDeletingBulk(true)
+    const idsToDelete = [...selectedVendasIds]
+    try {
+      await Promise.all(idsToDelete.map((id) => VendaService.delete(id)))
+      setVendas((prev) => prev.filter((v) => !idsToDelete.includes(v.id)))
+      setSelectedVendasIds([])
+      setIsBulkDeleteModalOpen(false)
+      toast.success(
+        `${idsToDelete.length} ${idsToDelete.length > 1 ? 'vendas excluídas' : 'venda excluída'} com sucesso!`,
+      )
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err?.message || 'Erro ao excluir vendas selecionadas.')
+    } finally {
+      setIsDeletingBulk(false)
+    }
   }
 
   // Auxiliar para obter a lista de captadores
@@ -416,7 +464,7 @@ export default function Vendas() {
       const finalCaptadores = formCaptadores.filter(Boolean)
 
       if (editingVenda) {
-        await VendaService.update(
+        const updated = await VendaService.update(
           editingVenda.id,
           {
             titulo_imovel: formTitulo,
@@ -441,9 +489,33 @@ export default function Vendas() {
           },
           user.id,
         )
+
+        // Atualização otimista imediata no estado local
+        const corretorObj = corretores.find((c) => c.id === formCorretorPrincipal)
+        const captadoresObjs = finalCaptadores
+          .map((cid) => corretores.find((c) => c.id === cid))
+          .filter((c): c is Corretor => Boolean(c))
+
+        setVendas((prev) =>
+          prev.map((item) =>
+            item.id === editingVenda.id
+              ? {
+                  ...item,
+                  ...updated,
+                  expand: {
+                    ...item.expand,
+                    corretor: corretorObj,
+                    captadores: captadoresObjs,
+                    captador: captadoresObjs[0],
+                  },
+                }
+              : item,
+          ),
+        )
+
         toast.success('Entrada atualizada com sucesso!')
       } else {
-        await VendaService.create({
+        const created = await VendaService.create({
           titulo_imovel: formTitulo,
           cliente: formCliente,
           corretor: formCorretorPrincipal,
@@ -465,9 +537,29 @@ export default function Vendas() {
           status: formStatus,
           userId: user.id,
         })
+
+        const corretorObj = corretores.find((c) => c.id === formCorretorPrincipal)
+        const captadoresObjs = finalCaptadores
+          .map((cid) => corretores.find((c) => c.id === cid))
+          .filter((c): c is Corretor => Boolean(c))
+
+        setVendas((prev) => [
+          {
+            ...created,
+            expand: {
+              ...created.expand,
+              corretor: corretorObj,
+              captadores: captadoresObjs,
+              captador: captadoresObjs[0],
+            },
+          },
+          ...prev,
+        ])
+
         toast.success('Entrada cadastrada e fluxos financeiros gerados com sucesso!')
       }
       setIsModalOpen(false)
+      setEditingVenda(null)
       loadData()
     } catch (err: any) {
       console.error(err)
@@ -477,15 +569,27 @@ export default function Vendas() {
     }
   }
 
-  const handleDelete = async () => {
-    if (!deleteId) return
+  // Abrir Modal de Exclusão Individual
+  const handleOpenDeleteModal = (venda: Venda) => {
+    setDeletingVenda(venda)
+    setIsDeleteModalOpen(true)
+  }
+
+  // Confirmar Exclusão Individual
+  const handleConfirmDelete = async () => {
+    if (!deletingVenda) return
+    const idToDelete = deletingVenda.id
     setDeleting(true)
     try {
-      await VendaService.delete(deleteId)
+      await VendaService.delete(idToDelete)
+      // Atualização otimista imediata no estado local
+      setVendas((prev) => prev.filter((v) => v.id !== idToDelete))
+      setSelectedVendasIds((prev) => prev.filter((id) => id !== idToDelete))
       toast.success('Venda e transações vinculadas excluídas com sucesso!')
-      setDeleteId(null)
-      loadData()
+      setIsDeleteModalOpen(false)
+      setDeletingVenda(null)
     } catch (err: any) {
+      console.error(err)
       toast.error(err?.message || 'Erro ao excluir venda.')
     } finally {
       setDeleting(false)
@@ -573,6 +677,63 @@ export default function Vendas() {
           </Button>
         </div>
       </div>
+
+      {/* Bulk Actions Bar (Barra de Ações em Lote) */}
+      {selectedVendasIds.length > 0 && (
+        <div className="sticky top-2 z-20 bg-[#171C28] border-2 border-[#E63946]/40 shadow-2xl shadow-[#E63946]/10 rounded-2xl p-3 sm:px-5 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in slide-in-from-top duration-200">
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <div className="w-8 h-8 rounded-lg bg-[#E63946]/15 border border-[#E63946]/30 flex items-center justify-center text-[#E63946] shrink-0">
+              <CheckSquare className="w-4 h-4" />
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm font-bold text-white">
+                {selectedVendasIds.length}{' '}
+                {selectedVendasIds.length === 1 ? 'venda selecionada' : 'vendas selecionadas'}
+              </span>
+              <span className="text-xs text-slate-400 hidden md:inline">
+                • VGV:{' '}
+                <strong className="text-slate-200">
+                  {formatCurrency(
+                    vendas
+                      .filter((v) => selectedVendasIds.includes(v.id))
+                      .reduce((acc, curr) => acc + (curr.valor_vgv || 0), 0),
+                  )}
+                </strong>{' '}
+                | Comissão:{' '}
+                <strong className="text-emerald-400">
+                  {formatCurrency(
+                    vendas
+                      .filter((v) => selectedVendasIds.includes(v.id))
+                      .reduce((acc, curr) => acc + (curr.valor_comissao || 0), 0),
+                  )}
+                </strong>
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setSelectedVendasIds([])}
+              className="bg-[#0B0E14] border-[#232A3B] hover:bg-[#1A2234] text-slate-300 text-xs h-9 px-3 rounded-xl gap-1.5"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Desmarcar</span>
+            </Button>
+
+            <Button
+              type="button"
+              onClick={handleOpenBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold text-xs h-9 px-4 rounded-xl shadow-lg shadow-red-600/20 flex items-center gap-1.5 transition-all"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+              <span>Excluir Selecionados ({selectedVendasIds.length})</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Filters & Search Toolbar */}
       <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 flex flex-col xl:flex-row items-stretch xl:items-center justify-between gap-3 shadow-md w-full min-w-0">
@@ -675,6 +836,21 @@ export default function Vendas() {
           <table className="w-full min-w-[950px] text-left text-xs">
             <thead>
               <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
+                <th className="py-3.5 px-4 w-10 text-center">
+                  <Checkbox
+                    checked={
+                      filteredVendas.length > 0 &&
+                      selectedVendasIds.length === filteredVendas.length
+                        ? true
+                        : selectedVendasIds.length > 0
+                          ? 'indeterminate'
+                          : false
+                    }
+                    onCheckedChange={(checked) => handleSelectAllVendas(Boolean(checked))}
+                    aria-label="Selecionar todas as vendas"
+                    className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
+                  />
+                </th>
                 <th className="py-3.5 px-4 min-w-[180px]">Imóvel & Cliente</th>
                 <th className="py-3.5 px-4 min-w-[90px]">Tipo</th>
                 <th className="py-3.5 px-4 min-w-[150px]">Corretor / Captador</th>
@@ -684,11 +860,12 @@ export default function Vendas() {
                 <th className="py-3.5 px-4 min-w-[100px]">Competência</th>
                 <th className="py-3.5 px-4 min-w-[100px]">Recebimento</th>
                 <th className="py-3.5 px-4 text-center min-w-[95px]">Status</th>
-                <th className="py-3.5 px-4 text-right min-w-[70px]">Ações</th>
+                <th className="py-3.5 px-4 text-right min-w-[80px]">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#232A3B]">
               {filteredVendas.map((v) => {
+                const isSelected = selectedVendasIds.includes(v.id)
                 const situacao = v.situacao_recebimento || 'Recebido'
                 const dVenda = new Date(v.data_venda)
                 const compStr = dVenda.toLocaleDateString('pt-BR', {
@@ -700,7 +877,21 @@ export default function Vendas() {
                   : dVenda.toLocaleDateString('pt-BR')
 
                 return (
-                  <tr key={v.id} className="hover:bg-[#1A2234]/50 transition-colors">
+                  <tr
+                    key={v.id}
+                    onClick={() => handleToggleSelectVenda(v.id)}
+                    className={`cursor-pointer transition-colors ${
+                      isSelected ? 'bg-[#E63946]/10 hover:bg-[#E63946]/15' : 'hover:bg-[#1A2234]/50'
+                    }`}
+                  >
+                    <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
+                      <Checkbox
+                        checked={isSelected}
+                        onCheckedChange={() => handleToggleSelectVenda(v.id)}
+                        aria-label={`Selecionar venda ${v.titulo_imovel}`}
+                        className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
+                      />
+                    </td>
                     <td className="py-3.5 px-4 max-w-[220px]">
                       <div
                         className="font-semibold text-slate-100 truncate"
@@ -760,22 +951,22 @@ export default function Vendas() {
                     </td>
                     <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">{dtRecStr}</td>
                     <td className="py-3.5 px-4 text-center">{getStatusBadge(v.status)}</td>
-                    <td className="py-3.5 px-4 text-right">
+                    <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <Button
                           variant="ghost"
                           size="icon"
                           onClick={() => handleOpenEditModal(v)}
-                          title="Editar entrada"
-                          className="h-7 w-7 text-slate-400 hover:text-white hover:bg-[#1A2234]"
+                          title="Editar venda"
+                          className="h-7 w-7 text-slate-400 hover:text-white hover:bg-slate-700/50"
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => setDeleteId(v.id)}
-                          title="Excluir entrada"
+                          onClick={() => handleOpenDeleteModal(v)}
+                          title="Excluir venda"
                           className="h-7 w-7 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
                         >
                           <Trash2 className="w-3.5 h-3.5" />
@@ -788,7 +979,7 @@ export default function Vendas() {
 
               {filteredVendas.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-slate-500">
+                  <td colSpan={11} className="py-12 text-center text-slate-500">
                     <div className="flex flex-col items-center justify-center gap-2">
                       <Building className="w-8 h-8 text-slate-600" />
                       <p className="font-medium">Nenhuma entrada encontrada para os filtros.</p>
@@ -1393,36 +1584,125 @@ export default function Vendas() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal Confirmação de Exclusão */}
-      <Dialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-sm">
+      {/* Modal Confirmação de Exclusão Individual */}
+      <Dialog open={isDeleteModalOpen} onOpenChange={setIsDeleteModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-sm p-6 rounded-2xl shadow-2xl">
           <DialogHeader>
             <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
-              <AlertCircle className="w-5 h-5 text-red-400" />
+              <AlertCircle className="w-5 h-5 text-red-500" />
               Excluir Venda
             </DialogTitle>
-            <DialogDescription className="text-xs text-slate-400">
-              Tem certeza de que deseja excluir este registro e todas as transações financeiras
-              vinculadas?
+            <DialogDescription className="text-xs text-slate-300 mt-2">
+              Tem certeza que deseja remover permanentemente esta venda e todas as transações
+              financeiras e comissões vinculadas?
             </DialogDescription>
           </DialogHeader>
-          <DialogFooter className="gap-2">
+
+          {deletingVenda && (
+            <div className="my-3 p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs space-y-1.5">
+              <p className="font-semibold text-slate-100">{deletingVenda.titulo_imovel}</p>
+              {deletingVenda.cliente && (
+                <p className="text-[11px] text-slate-400">Cliente: {deletingVenda.cliente}</p>
+              )}
+              <div className="flex items-center justify-between text-slate-400 pt-1 border-t border-[#232A3B]">
+                <span>Comissão:</span>
+                <span className="font-bold text-emerald-400">
+                  {formatCurrency(deletingVenda.valor_comissao)}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
             <Button
+              type="button"
               variant="outline"
-              size="sm"
-              onClick={() => setDeleteId(null)}
-              className="bg-transparent border-[#232A3B] text-slate-300"
+              disabled={deleting}
+              onClick={() => setIsDeleteModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
             >
               Cancelar
             </Button>
             <Button
-              variant="destructive"
-              size="sm"
+              type="button"
               disabled={deleting}
-              onClick={handleDelete}
-              className="bg-red-600 hover:bg-red-700 font-semibold"
+              onClick={handleConfirmDelete}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
             >
-              {deleting ? 'Excluindo...' : 'Confirmar Exclusão'}
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Excluir Definitivamente'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Confirmação de Exclusão em Lote (Bulk Delete) */}
+      <Dialog open={isBulkDeleteModalOpen} onOpenChange={setIsBulkDeleteModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-sm p-6 rounded-2xl shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <AlertCircle className="w-5 h-5 text-red-500" />
+              Excluir Vendas Selecionadas
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-300 mt-2">
+              Tem certeza que deseja excluir permanentemente{' '}
+              <strong className="text-white">
+                {selectedVendasIds.length}{' '}
+                {selectedVendasIds.length > 1 ? 'vendas selecionadas' : 'venda selecionada'}
+              </strong>{' '}
+              e seus respectivos lançamentos financeiros? Esta ação não pode ser desfeita.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="my-3 p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs space-y-2">
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Quantidade de vendas:</span>
+              <span className="font-bold text-white">{selectedVendasIds.length}</span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>VGV total acumulado:</span>
+              <span className="font-bold text-white">
+                {formatCurrency(
+                  vendas
+                    .filter((v) => selectedVendasIds.includes(v.id))
+                    .reduce((acc, curr) => acc + (curr.valor_vgv || 0), 0),
+                )}
+              </span>
+            </div>
+            <div className="flex items-center justify-between text-slate-400">
+              <span>Comissão total acumulada:</span>
+              <span className="font-bold text-emerald-400">
+                {formatCurrency(
+                  vendas
+                    .filter((v) => selectedVendasIds.includes(v.id))
+                    .reduce((acc, curr) => acc + (curr.valor_comissao || 0), 0),
+                )}
+              </span>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={isDeletingBulk}
+              onClick={() => setIsBulkDeleteModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={isDeletingBulk}
+              onClick={handleConfirmBulkDelete}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {isDeletingBulk ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                `Excluir ${selectedVendasIds.length} ${
+                  selectedVendasIds.length > 1 ? 'Vendas' : 'Venda'
+                }`
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
