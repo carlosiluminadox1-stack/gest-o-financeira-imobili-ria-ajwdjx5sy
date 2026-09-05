@@ -15,7 +15,9 @@ import {
   AlertCircle,
   CheckSquare,
   X,
+  UploadCloud,
 } from 'lucide-react'
+import { ImportarExtratoModal } from '@/components/ImportarExtratoModal'
 import { TransacaoService, DespesaService } from '@/services/imobService'
 import {
   Transacao,
@@ -70,6 +72,9 @@ export default function FluxoCaixa() {
   const [tipoFilter, setTipoFilter] = useState<string>('todos')
   const [statusFilter, setStatusFilter] = useState<string>('todos')
   const [categoriaFilter, setCategoriaFilter] = useState<string>('todos')
+
+  // Modal Importar Extrato Bancário
+  const [isImportarExtratoOpen, setIsImportarExtratoOpen] = useState(false)
 
   // Modal Nova / Editar Transação
   const [isTransacaoModalOpen, setIsTransacaoModalOpen] = useState(false)
@@ -900,6 +905,15 @@ export default function FluxoCaixa() {
         </div>
 
         <div className="flex items-center gap-2">
+          <Button
+            onClick={() => setIsImportarExtratoOpen(true)}
+            variant="outline"
+            className="bg-[#121722] hover:bg-[#1A2234] text-slate-200 border-[#232A3B] hover:border-[#E63946]/40 font-semibold text-xs h-10 px-3.5 rounded-xl flex items-center gap-2 transition-all shadow-sm"
+          >
+            <UploadCloud className="w-4 h-4 text-[#E63946]" />
+            <span>Importar Extrato</span>
+          </Button>
+
           {activeTab === 'transacoes' ? (
             <Button
               onClick={handleOpenCreateTransacao}
@@ -2181,6 +2195,17 @@ export default function FluxoCaixa() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Modal de Importação de Extrato Bancário */}
+      <ImportarExtratoModal
+        open={isImportarExtratoOpen}
+        onOpenChange={setIsImportarExtratoOpen}
+        transacoesExistentes={transacoes}
+        userId={user?.id || ''}
+        onSuccess={() => {
+          loadData()
+        }}
+      />
     </div>
   )
 }
