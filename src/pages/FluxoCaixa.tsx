@@ -6,6 +6,7 @@ import {
   ArrowDownRight,
   Search,
   Repeat,
+  Building2,
   CheckCircle,
   XCircle,
   Trash2,
@@ -18,6 +19,7 @@ import {
   UploadCloud,
 } from 'lucide-react'
 import { ImportarExtratoModal } from '@/components/ImportarExtratoModal'
+import { ConverterEmVendaModal } from '@/components/ConverterEmVendaModal'
 import { TransacaoService, DespesaService, CategoriaService } from '@/services/imobService'
 import {
   Transacao,
@@ -55,7 +57,7 @@ import {
 
 export default function FluxoCaixa() {
   const { user } = useAuth()
-  const { periodo, getPeriodoDates } = usePeriodo()
+  const { periodo, setPeriodo, getPeriodoDates } = usePeriodo()
   const [activeTab, setActiveTab] = useState<'transacoes' | 'despesas'>('transacoes')
 
   const [transacoes, setTransacoes] = useState<Transacao[]>([])
@@ -77,6 +79,10 @@ export default function FluxoCaixa() {
 
   // Modal Importar Extrato Bancário
   const [isImportarExtratoOpen, setIsImportarExtratoOpen] = useState(false)
+
+  // Modal Converter em Venda
+  const [isConverterModalOpen, setIsConverterModalOpen] = useState(false)
+  const [convertingTransacao, setConvertingTransacao] = useState<Transacao | null>(null)
 
   // Modal Nova / Editar Transação
   const [isTransacaoModalOpen, setIsTransacaoModalOpen] = useState(false)
@@ -246,6 +252,40 @@ export default function FluxoCaixa() {
   }, [transacoes, despesas, start, end])
 
   const saldoPeriodo = totalEntradas - totalSaidas
+
+  // Verificação de parcelas recorrentes ocultas pelo filtro de período atual
+  const parcelasOcultasInfo = useMemo(() => {
+    if (periodo === 'tudo') return { countTransacoes: 0, countDespesas: 0, hasHidden: false }
+
+    const ocultasTransacoes = transacoes.filter((t) => {
+      const dt = new Date(t.data)
+      const isFora = dt < start || dt > end
+      const isRecorrenteDesc = /\(\d+\/\d+\)/.test(t.descricao)
+      return isFora && isRecorrenteDesc
+    }).length
+
+    const ocultasDespesas = despesas.filter((d) => {
+      const refDateStr = d.data_vencimento || d.data
+      const dt = refDateStr ? new Date(refDateStr) : null
+      const isFora = dt ? dt < start || dt > end : false
+      const isRecorrente = d.recorrente || /\(\d+\/\d+\)/.test(d.descricao)
+      return isFora && isRecorrente
+    }).length
+
+    const totalOcultas = ocultasTransacoes + ocultasDespesas
+    return {
+      countTransacoes: ocultasTransacoes,
+      countDespesas: ocultasDespesas,
+      hasHidden: totalOcultas > 0,
+      total: totalOcultas,
+    }
+  }, [transacoes, despesas, periodo, start, end])
+
+  // Abrir modal Converter em Venda
+  const handleOpenConverterEmVenda = (t: Transacao) => {
+    setConvertingTransacao(t)
+    setIsConverterModalOpen(true)
+  }
 
   // Gráfico Entradas x Saídas
   const chartData = useMemo(() => {
@@ -989,6 +1029,37 @@ export default function FluxoCaixa() {
 
   return (
     <div className="space-y-6">
+      {/* Aviso de Parcelas Ocultas pelo Filtro de Período Atual */}
+      {parcelasOcultasInfo.hasHidden && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-3 sm:px-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+              <Repeat className="w-4 h-4" />
+            </div>
+            <div className="text-xs">
+              <span className="font-bold text-amber-300">
+                Aviso: {parcelasOcultasInfo.total} parcela{parcelasOcultasInfo.total > 1 ? 's' : ''}{' '}
+                de recorrência {parcelasOcultasInfo.total > 1 ? 'estão' : 'está'} oculta
+                {parcelasOcultasInfo.total > 1 ? 's' : ''} pelo filtro de período atual (
+                {getPeriodoDates(periodo).label}).
+              </span>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Para visualizar todas as parcelas futuras e passadas de uma só vez, altere o seletor
+                para Todo o período.
+              </p>
+            </div>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => setPeriodo('tudo')}
+            className="bg-amber-500 hover:bg-amber-600 text-[#0B0E14] font-bold text-xs h-8 px-3 rounded-lg shrink-0 shadow-sm transition-all"
+          >
+            Ver Todo o período
+          </Button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div>
@@ -1451,6 +1522,19 @@ export default function FluxoCaixa() {
                         </td>
                         <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
+                            {/* Botão Converter em Venda: exclusivo para transações de ENTRADA não vinculadas a vendas */}
+                            {t.tipo === 'entrada' && !t.venda && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                title="Converter esta entrada em Venda (comissões, VGV, corretores e divisões)"
+                                onClick={() => handleOpenConverterEmVenda(t)}
+                                className="h-7 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 font-semibold text-[11px] rounded-lg gap-1 shadow-sm transition-all active:scale-95"
+                              >
+                                <Building2 className="w-3 h-3 text-emerald-400" />
+                                <span className="hidden sm:inline">Converter</span>
+                              </Button>
+                            )}
                             <Button
                               variant="ghost"
                               size="icon"
@@ -2324,6 +2408,17 @@ export default function FluxoCaixa() {
         open={isImportarExtratoOpen}
         onOpenChange={setIsImportarExtratoOpen}
         transacoesExistentes={transacoes}
+        userId={user?.id || ''}
+        onSuccess={() => {
+          loadData()
+        }}
+      />
+
+      {/* Modal Converter em Venda */}
+      <ConverterEmVendaModal
+        open={isConverterModalOpen}
+        onOpenChange={setIsConverterModalOpen}
+        transacao={convertingTransacao}
         userId={user?.id || ''}
         onSuccess={() => {
           loadData()
