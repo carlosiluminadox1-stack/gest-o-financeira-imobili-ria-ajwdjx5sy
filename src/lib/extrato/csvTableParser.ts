@@ -144,9 +144,10 @@ export function normalizeDate(
  */
 export function parseTableRows(
   rows: string[][],
-  tipoOrigem: 'GENERICO_CSV' | 'GENERICO_EXCEL',
+  tipoOrigem: 'SICOOB' | 'GENERICO_CSV' | 'GENERICO_EXCEL' = 'GENERICO_CSV',
   mapping?: ColumnMapping,
   anoFallback?: number,
+  categoriasCadastradas?: Array<{ nome: string; tipo: string; ativo?: boolean }>,
 ): ExtratoParseResult {
   if (!rows || rows.length === 0) {
     return {
@@ -240,7 +241,7 @@ export function parseTableRows(
     const { iso, display } = normalizeDate(dataCell || '', anoFallback)
     const descricao = descCell || 'Lançamento sem descrição'
     const doc = colMap.colDocumento !== undefined ? row[colMap.colDocumento]?.trim() : undefined
-    const categoria = sugerirCategoria(descricao, tipo)
+    const categoria = sugerirCategoria(descricao, tipo, categoriasCadastradas)
 
     itens.push({
       id: `${tipoOrigem.toLowerCase()}-${r}-${Date.now()}`,
@@ -281,7 +282,11 @@ export function parseTableRows(
 /**
  * Parser de texto CSV (suporta delimitadores vírgula, ponto-e-vírgula e tab)
  */
-export function parseCsvText(csvText: string, anoFallback?: number): ExtratoParseResult {
+export function parseCsvText(
+  csvText: string,
+  anoFallback?: number,
+  categoriasCadastradas?: Array<{ nome: string; tipo: string; ativo?: boolean }>,
+): ExtratoParseResult {
   const lines = csvText.split(/\r?\n/).filter((l) => l.trim().length > 0)
   if (lines.length === 0) {
     return {
@@ -328,5 +333,5 @@ export function parseCsvText(csvText: string, anoFallback?: number): ExtratoPars
     rows.push(cells)
   }
 
-  return parseTableRows(rows, 'GENERICO_CSV', undefined, anoFallback)
+  return parseTableRows(rows, 'GENERICO_CSV', undefined, anoFallback, categoriasCadastradas)
 }

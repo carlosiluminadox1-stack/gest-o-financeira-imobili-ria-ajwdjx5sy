@@ -5,6 +5,7 @@ import { ExtratoParseResult } from './types'
 
 export interface ProcessFileOptions {
   anoFallback?: number
+  categoriasCadastradas?: Array<{ nome: string; tipo: string; ativo?: boolean }>
 }
 
 /**
@@ -60,7 +61,11 @@ async function extractTextFromPdf(file: File): Promise<string> {
 /**
  * Lê arquivo Excel (.xlsx, .xls) usando SheetJS
  */
-async function parseExcelFile(file: File, anoFallback?: number): Promise<ExtratoParseResult> {
+async function parseExcelFile(
+  file: File,
+  anoFallback?: number,
+  categoriasCadastradas?: Array<{ nome: string; tipo: string; ativo?: boolean }>,
+): Promise<ExtratoParseResult> {
   const XLSX = await loadXlsx()
   const arrayBuffer = await file.arrayBuffer()
   const workbook = XLSX.read(arrayBuffer, { type: 'array' })
@@ -75,7 +80,7 @@ async function parseExcelFile(file: File, anoFallback?: number): Promise<Extrato
     raw: false,
   }) as string[][]
 
-  return parseTableRows(rows, 'GENERICO_EXCEL', undefined, anoFallback)
+  return parseTableRows(rows, 'GENERICO_EXCEL', undefined, anoFallback, categoriasCadastradas)
 }
 
 /**
@@ -109,7 +114,11 @@ export async function processExtratoFile(
       }
 
       // Tenta parser SICOOB (foco principal do sistema)
-      const sicoobResult = parseSicoobText(extractedText, anoFallback)
+      const sicoobResult = parseSicoobText(
+        extractedText,
+        anoFallback,
+        options?.categoriasCadastradas,
+      )
 
       if (sicoobResult.itens.length > 0) {
         return sicoobResult
@@ -117,7 +126,13 @@ export async function processExtratoFile(
 
       // Se falhou SICOOB, tenta parser genérico linha a linha
       const lines = extractedText.split('\n').map((l) => [l])
-      const fallbackResult = parseTableRows(lines, 'GENERICO_CSV', undefined, anoFallback)
+      const fallbackResult = parseTableRows(
+        lines,
+        'GENERICO_CSV',
+        undefined,
+        anoFallback,
+        options?.categoriasCadastradas,
+      )
 
       if (fallbackResult.itens.length > 0) {
         return fallbackResult
@@ -155,10 +170,10 @@ export async function processExtratoFile(
       const text = await file.text()
       // Verificar se é texto puro do extrato SICOOB colado
       if (text.includes('SICOOB') || text.includes('SISBR')) {
-        const sicoobRes = parseSicoobText(text, anoFallback)
+        const sicoobRes = parseSicoobText(text, anoFallback, options?.categoriasCadastradas)
         if (sicoobRes.itens.length > 0) return sicoobRes
       }
-      return parseCsvText(text, anoFallback)
+      return parseCsvText(text, anoFallback, options?.categoriasCadastradas)
     } catch (err: any) {
       return {
         bancoDetectado: 'GENERICO_CSV',
@@ -179,7 +194,7 @@ export async function processExtratoFile(
     file.type.includes('spreadsheet')
   ) {
     try {
-      return await parseExcelFile(file, anoFallback)
+      return await parseExcelFile(file, anoFallback, options?.categoriasCadastradas)
     } catch (err: any) {
       return {
         bancoDetectado: 'GENERICO_EXCEL',

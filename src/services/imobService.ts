@@ -15,6 +15,8 @@ import {
   SystemUser,
   FormaPagamento,
   SituacaoRecebimento,
+  CategoriaFinanceira,
+  CategoriaTipo,
 } from '@/types'
 import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
 
@@ -1144,5 +1146,70 @@ export const FechamentoService = {
   },
   async reabrirMes(id: string): Promise<boolean> {
     return await pb.collection('fechamentos').delete(id)
+  },
+}
+
+// Categorias Financeiras Service
+export const CategoriaService = {
+  async getAll(): Promise<CategoriaFinanceira[]> {
+    return await pb.collection('categorias').getFullList<CategoriaFinanceira>({
+      sort: 'nome',
+    })
+  },
+  async getAtivas(tipo?: CategoriaTipo): Promise<CategoriaFinanceira[]> {
+    let filter = 'ativo = true'
+    if (tipo && tipo !== 'ambos') {
+      filter += ` && (tipo = "${tipo}" || tipo = "ambos")`
+    }
+    return await pb.collection('categorias').getFullList<CategoriaFinanceira>({
+      filter,
+      sort: 'nome',
+    })
+  },
+  async create(data: {
+    nome: string
+    tipo: CategoriaTipo
+    cor?: string
+    ativo?: boolean
+    user?: string
+  }): Promise<CategoriaFinanceira> {
+    const payload = {
+      nome: data.nome.trim(),
+      tipo: data.tipo,
+      cor: data.cor || '#E63946',
+      ativo: data.ativo ?? true,
+      user: data.user || pb.authStore.record?.id || undefined,
+    }
+    return await pb.collection('categorias').create<CategoriaFinanceira>(payload)
+  },
+  async update(id: string, data: Partial<CategoriaFinanceira>): Promise<CategoriaFinanceira> {
+    return await pb.collection('categorias').update<CategoriaFinanceira>(id, data)
+  },
+  async delete(id: string): Promise<boolean> {
+    return await pb.collection('categorias').delete(id)
+  },
+  async countUso(
+    nomeOuId: string,
+  ): Promise<{ transacoes: number; despesas: number; total: number }> {
+    try {
+      const clean = nomeOuId.trim()
+      const [tList, dList] = await Promise.all([
+        pb.collection('transacoes').getFullList({
+          filter: `categoria = "${clean}"`,
+          fields: 'id',
+        }),
+        pb.collection('despesas').getFullList({
+          filter: `categoria = "${clean}"`,
+          fields: 'id',
+        }),
+      ])
+      return {
+        transacoes: tList.length,
+        despesas: dList.length,
+        total: tList.length + dList.length,
+      }
+    } catch {
+      return { transacoes: 0, despesas: 0, total: 0 }
+    }
   },
 }

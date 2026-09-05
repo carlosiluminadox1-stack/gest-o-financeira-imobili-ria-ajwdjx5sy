@@ -95,6 +95,19 @@ export interface MetaVGV {
 }
 
 export type TransacaoTipo = 'entrada' | 'saida'
+export type CategoriaTipo = 'entrada' | 'saida' | 'ambos'
+
+export interface CategoriaFinanceira {
+  id: string
+  nome: string
+  tipo: CategoriaTipo
+  cor?: string
+  ativo: boolean
+  user?: string
+  created: string
+  updated: string
+}
+
 export type TransacaoCategoria =
   | 'comissao'
   | 'imposto'
@@ -105,6 +118,7 @@ export type TransacaoCategoria =
   | 'utilidades'
   | 'manutencao'
   | 'outros'
+  | string
 
 export type TransacaoStatus = 'Pendente' | 'Pago' | 'Cancelado' | string
 
@@ -140,6 +154,7 @@ export type DespesaCategoria =
   | 'utilidades'
   | 'manutencao'
   | 'outros'
+  | string
 
 export type DespesaFrequencia = 'mensal' | 'trimestral' | 'semestral' | 'anual'
 export type DespesaStatus = 'Pendente' | 'Pago' | 'Cancelado'

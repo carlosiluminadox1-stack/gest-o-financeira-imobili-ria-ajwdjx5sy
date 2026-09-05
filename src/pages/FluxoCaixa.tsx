@@ -18,7 +18,7 @@ import {
   UploadCloud,
 } from 'lucide-react'
 import { ImportarExtratoModal } from '@/components/ImportarExtratoModal'
-import { TransacaoService, DespesaService } from '@/services/imobService'
+import { TransacaoService, DespesaService, CategoriaService } from '@/services/imobService'
 import {
   Transacao,
   Despesa,
@@ -26,6 +26,7 @@ import {
   TransacaoCategoria,
   DespesaCategoria,
   DespesaFrequencia,
+  CategoriaFinanceira,
 } from '@/types'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo, MESES_NOMES } from '@/context/PeriodoContext'
@@ -59,6 +60,7 @@ export default function FluxoCaixa() {
 
   const [transacoes, setTransacoes] = useState<Transacao[]>([])
   const [despesas, setDespesas] = useState<Despesa[]>([])
+  const [categoriasCadastradas, setCategoriasCadastradas] = useState<CategoriaFinanceira[]>([])
   const [loading, setLoading] = useState(true)
 
   // Seleção múltipla (checkboxes)
@@ -131,9 +133,14 @@ export default function FluxoCaixa() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [tList, dList] = await Promise.all([TransacaoService.getAll(), DespesaService.getAll()])
+      const [tList, dList, catList] = await Promise.all([
+        TransacaoService.getAll(),
+        DespesaService.getAll(),
+        CategoriaService.getAll().catch(() => []),
+      ])
       setTransacoes(tList)
       setDespesas(dList)
+      setCategoriasCadastradas(catList)
     } catch (err) {
       console.error(err)
       toast.error('Erro ao carregar dados do fluxo de caixa.')
@@ -433,6 +440,94 @@ export default function FluxoCaixa() {
   }
 
   // Reset do Modal de Transação Manual (Criação)
+  // Lista combinada de categorias para o formulário de Transações (filtrado pelo tipo entrada/saida)
+  const transacaoCategoriasDisponiveis = useMemo(() => {
+    const ativas = categoriasCadastradas.filter(
+      (c) => c.ativo && (c.tipo === 'ambos' || c.tipo === tTipo),
+    )
+    const setNomes = new Set(ativas.map((c) => c.nome.toLowerCase()))
+    const padroes = [
+      { valor: 'comissao', label: 'Comissão', tipo: 'entrada' },
+      { valor: 'imposto', label: 'Imposto', tipo: 'saida' },
+      { valor: 'repasse', label: 'Repasse', tipo: 'saida' },
+      { valor: 'aluguel', label: 'Aluguel', tipo: 'saida' },
+      { valor: 'marketing', label: 'Marketing', tipo: 'saida' },
+      { valor: 'salarios', label: 'Salários', tipo: 'saida' },
+      { valor: 'utilidades', label: 'Utilidades', tipo: 'saida' },
+      { valor: 'manutencao', label: 'Manutenção', tipo: 'saida' },
+      { valor: 'outros', label: 'Outros', tipo: 'ambos' },
+    ]
+    const padroesFiltrados = padroes.filter(
+      (p) =>
+        (p.tipo === 'ambos' || p.tipo === tTipo) &&
+        !setNomes.has(p.valor.toLowerCase()) &&
+        !setNomes.has(p.label.toLowerCase()),
+    )
+    return {
+      custom: ativas,
+      padrao: padroesFiltrados,
+    }
+  }, [categoriasCadastradas, tTipo])
+
+  // Lista combinada de categorias para o formulário de Despesas (apenas saída ou ambos)
+  const despesaCategoriasDisponiveis = useMemo(() => {
+    const ativas = categoriasCadastradas.filter(
+      (c) => c.ativo && (c.tipo === 'ambos' || c.tipo === 'saida'),
+    )
+    const setNomes = new Set(ativas.map((c) => c.nome.toLowerCase()))
+    const padroes = [
+      { valor: 'aluguel', label: 'Aluguel' },
+      { valor: 'marketing', label: 'Marketing' },
+      { valor: 'salarios', label: 'Salários' },
+      { valor: 'utilidades', label: 'Utilidades (Água/Luz/Net)' },
+      { valor: 'manutencao', label: 'Manutenção' },
+      { valor: 'outros', label: 'Sem categoria / Outros' },
+    ]
+    const padroesFiltrados = padroes.filter(
+      (p) => !setNomes.has(p.valor.toLowerCase()) && !setNomes.has(p.label.toLowerCase()),
+    )
+    return {
+      custom: ativas,
+      padrao: padroesFiltrados,
+    }
+  }, [categoriasCadastradas])
+
+  // Lista de todas as categorias existentes para o filtro da tabela de transações
+  const todasCategoriasTransacoes = useMemo(() => {
+    const list = new Set<string>()
+    categoriasCadastradas.forEach((c) => list.add(c.nome))
+    transacoes.forEach((t) => {
+      if (t.categoria) list.add(t.categoria)
+    })
+    ;[
+      'comissao',
+      'imposto',
+      'repasse',
+      'aluguel',
+      'marketing',
+      'salarios',
+      'utilidades',
+      'manutencao',
+      'outros',
+    ].forEach((k) => list.add(k))
+    return Array.from(list).sort()
+  }, [categoriasCadastradas, transacoes])
+
+  // Lista de todas as categorias existentes para o filtro da tabela de despesas
+  const todasCategoriasDespesas = useMemo(() => {
+    const list = new Set<string>()
+    categoriasCadastradas
+      .filter((c) => c.tipo === 'saida' || c.tipo === 'ambos')
+      .forEach((c) => list.add(c.nome))
+    despesas.forEach((d) => {
+      if (d.categoria) list.add(d.categoria)
+    })
+    ;['aluguel', 'marketing', 'salarios', 'utilidades', 'manutencao', 'outros'].forEach((k) =>
+      list.add(k),
+    )
+    return Array.from(list).sort()
+  }, [categoriasCadastradas, despesas])
+
   const handleOpenCreateTransacao = () => {
     setEditingTransacao(null)
     setTTipo('entrada')
@@ -1201,18 +1296,14 @@ export default function FluxoCaixa() {
               <select
                 value={categoriaFilter}
                 onChange={(e) => setCategoriaFilter(e.target.value)}
-                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none"
+                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none capitalize"
               >
                 <option value="todos">Todas Categorias</option>
-                <option value="comissao">Comissão</option>
-                <option value="imposto">Imposto (6%)</option>
-                <option value="repasse">Repasse</option>
-                <option value="aluguel">Aluguel</option>
-                <option value="marketing">Marketing</option>
-                <option value="salarios">Salários</option>
-                <option value="utilidades">Utilidades</option>
-                <option value="manutencao">Manutenção</option>
-                <option value="outros">Outros</option>
+                {todasCategoriasTransacoes.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1428,15 +1519,14 @@ export default function FluxoCaixa() {
               <select
                 value={despesaCategoriaFilter}
                 onChange={(e) => setDespesaCategoriaFilter(e.target.value)}
-                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none"
+                className="bg-[#0B0E14] border border-[#232A3B] text-slate-300 text-xs rounded-lg h-9 px-2.5 outline-none capitalize"
               >
                 <option value="todos">Todas Categorias</option>
-                <option value="aluguel">Aluguel</option>
-                <option value="marketing">Marketing</option>
-                <option value="salarios">Salários</option>
-                <option value="utilidades">Utilidades</option>
-                <option value="manutencao">Manutenção</option>
-                <option value="outros">Outros</option>
+                {todasCategoriasDespesas.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </select>
             </div>
           </div>
@@ -1676,19 +1766,34 @@ export default function FluxoCaixa() {
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">Categoria</label>
                 <select
-                  value={tCategoria}
+                  value={tCategoria || 'outros'}
                   onChange={(e) => setTCategoria(e.target.value as TransacaoCategoria)}
-                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none"
+                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none capitalize"
                 >
-                  <option value="comissao">Comissão</option>
-                  <option value="aluguel">Aluguel</option>
-                  <option value="marketing">Marketing</option>
-                  <option value="salarios">Salários</option>
-                  <option value="utilidades">Utilidades</option>
-                  <option value="manutencao">Manutenção</option>
-                  <option value="imposto">Imposto</option>
-                  <option value="repasse">Repasse</option>
-                  <option value="outros">Outros</option>
+                  {transacaoCategoriasDisponiveis.custom.length > 0 && (
+                    <optgroup label="Categorias Cadastradas">
+                      {transacaoCategoriasDisponiveis.custom.map((c) => (
+                        <option key={c.id} value={c.nome}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Categorias Padrão">
+                    {transacaoCategoriasDisponiveis.padrao.map((p) => (
+                      <option key={p.valor} value={p.valor}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {/* Se categoria atual for personalizada e não estiver na lista acima, manter para visualização */}
+                  {tCategoria &&
+                    !transacaoCategoriasDisponiveis.custom.some(
+                      (c) => c.nome.toLowerCase() === tCategoria.toLowerCase(),
+                    ) &&
+                    !transacaoCategoriasDisponiveis.padrao.some(
+                      (p) => p.valor.toLowerCase() === tCategoria.toLowerCase(),
+                    ) && <option value={tCategoria}>{tCategoria}</option>}
                 </select>
               </div>
 
@@ -1975,16 +2080,34 @@ export default function FluxoCaixa() {
                   CATEGORIA
                 </label>
                 <select
-                  value={dCategoria}
+                  value={dCategoria || 'outros'}
                   onChange={(e) => setDCategoria(e.target.value as DespesaCategoria)}
-                  className="w-full bg-[#1A1C23] border border-[#2A2E39] focus:border-[#E63946] text-slate-100 text-xs rounded-lg h-10 px-3 outline-none"
+                  className="w-full bg-[#1A1C23] border border-[#2A2E39] focus:border-[#E63946] text-slate-100 text-xs rounded-lg h-10 px-3 outline-none capitalize"
                 >
-                  <option value="outros">Sem categoria / Outros</option>
-                  <option value="aluguel">Aluguel</option>
-                  <option value="marketing">Marketing</option>
-                  <option value="salarios">Salários</option>
-                  <option value="utilidades">Utilidades (Água/Luz/Net)</option>
-                  <option value="manutencao">Manutenção</option>
+                  {despesaCategoriasDisponiveis.custom.length > 0 && (
+                    <optgroup label="Categorias Cadastradas">
+                      {despesaCategoriasDisponiveis.custom.map((c) => (
+                        <option key={c.id} value={c.nome}>
+                          {c.nome}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                  <optgroup label="Categorias Padrão">
+                    {despesaCategoriasDisponiveis.padrao.map((p) => (
+                      <option key={p.valor} value={p.valor}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </optgroup>
+                  {/* Se categoria atual for personalizada e não estiver na lista acima, manter para visualização */}
+                  {dCategoria &&
+                    !despesaCategoriasDisponiveis.custom.some(
+                      (c) => c.nome.toLowerCase() === dCategoria.toLowerCase(),
+                    ) &&
+                    !despesaCategoriasDisponiveis.padrao.some(
+                      (p) => p.valor.toLowerCase() === dCategoria.toLowerCase(),
+                    ) && <option value={dCategoria}>{dCategoria}</option>}
                 </select>
               </div>
             </div>

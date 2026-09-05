@@ -21,9 +21,16 @@ import {
   Palette,
   Bell,
   Check,
+  Tag,
+  AlertTriangle,
 } from 'lucide-react'
-import { ConfigService, CorretorService, UserService } from '@/services/imobService'
-import { Configuracoes, Corretor, SystemUser } from '@/types'
+import {
+  ConfigService,
+  CorretorService,
+  UserService,
+  CategoriaService,
+} from '@/services/imobService'
+import { Configuracoes, Corretor, SystemUser, CategoriaFinanceira, CategoriaTipo } from '@/types'
 import { useAuth } from '@/context/AuthContext'
 import { useTheme } from '@/context/ThemeContext'
 import { useContasAlert } from '@/context/ContasAlertContext'
@@ -50,6 +57,7 @@ export default function ConfiguracoesPage() {
   const [config, setConfig] = useState<Configuracoes | null>(null)
   const [corretores, setCorretores] = useState<Corretor[]>([])
   const [systemUsers, setSystemUsers] = useState<SystemUser[]>([])
+  const [categorias, setCategorias] = useState<CategoriaFinanceira[]>([])
   const [loading, setLoading] = useState(true)
 
   // Config Form
@@ -69,6 +77,26 @@ export default function ConfiguracoesPage() {
   const [cAtivo, setCAtivo] = useState(true)
   const [savingCorretor, setSavingCorretor] = useState(false)
 
+  // Modal Categoria Financeira
+  const [isCategoriaModalOpen, setIsCategoriaModalOpen] = useState(false)
+  const [editingCategoria, setEditingCategoria] = useState<CategoriaFinanceira | null>(null)
+  const [catNome, setCatNome] = useState('')
+  const [catTipo, setCatTipo] = useState<CategoriaTipo>('saida')
+  const [catCor, setCatCor] = useState('#E63946')
+  const [catAtivo, setCatAtivo] = useState(true)
+  const [savingCategoria, setSavingCategoria] = useState(false)
+
+  // Modal Confirmação Exclusão Categoria
+  const [isDeleteCatModalOpen, setIsDeleteCatModalOpen] = useState(false)
+  const [deletingCategoria, setDeletingCategoria] = useState<CategoriaFinanceira | null>(null)
+  const [catUsoCount, setCatUsoCount] = useState<{
+    transacoes: number
+    despesas: number
+    total: number
+  } | null>(null)
+  const [checkingUso, setCheckingUso] = useState(false)
+  const [deletingCatLoading, setDeletingCatLoading] = useState(false)
+
   // Modal Usuário do Sistema (Login Sócio / Secretaria)
   const [isUserModalOpen, setIsUserModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null)
@@ -81,13 +109,15 @@ export default function ConfiguracoesPage() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const [cList, uConfig, uUsers] = await Promise.all([
+      const [cList, uConfig, uUsers, catList] = await Promise.all([
         CorretorService.getAll(),
         user ? ConfigService.getForUser(user.id) : null,
         isSocio ? UserService.getAll().catch(() => []) : Promise.resolve([]),
+        CategoriaService.getAll().catch(() => []),
       ])
       setCorretores(cList)
       setSystemUsers(uUsers)
+      setCategorias(catList)
       if (uConfig) {
         setConfig(uConfig)
         setPctImob(uConfig.percentual_imobiliaria)
@@ -280,6 +310,91 @@ export default function ConfiguracoesPage() {
     }
   }
 
+  // --- Categorias Financeiras Actions ---
+  const handleOpenCreateCategoria = () => {
+    setEditingCategoria(null)
+    setCatNome('')
+    setCatTipo('saida')
+    setCatCor('#E63946')
+    setCatAtivo(true)
+    setIsCategoriaModalOpen(true)
+  }
+
+  const handleOpenEditCategoria = (c: CategoriaFinanceira) => {
+    setEditingCategoria(c)
+    setCatNome(c.nome)
+    setCatTipo(c.tipo)
+    setCatCor(c.cor || '#E63946')
+    setCatAtivo(c.ativo)
+    setIsCategoriaModalOpen(true)
+  }
+
+  const handleSaveCategoria = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!catNome.trim()) {
+      toast.error('O nome da categoria é obrigatório.')
+      return
+    }
+
+    setSavingCategoria(true)
+    try {
+      if (editingCategoria) {
+        await CategoriaService.update(editingCategoria.id, {
+          nome: catNome.trim(),
+          tipo: catTipo,
+          cor: catCor,
+          ativo: catAtivo,
+        })
+        toast.success('Categoria atualizada com sucesso!')
+      } else {
+        await CategoriaService.create({
+          nome: catNome.trim(),
+          tipo: catTipo,
+          cor: catCor,
+          ativo: catAtivo,
+        })
+        toast.success('Categoria cadastrada com sucesso!')
+      }
+      setIsCategoriaModalOpen(false)
+      loadData()
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao salvar categoria.')
+    } finally {
+      setSavingCategoria(false)
+    }
+  }
+
+  const handleOpenDeleteCategoria = async (cat: CategoriaFinanceira) => {
+    setDeletingCategoria(cat)
+    setCatUsoCount(null)
+    setCheckingUso(true)
+    setIsDeleteCatModalOpen(true)
+    try {
+      const uso = await CategoriaService.countUso(cat.nome)
+      setCatUsoCount(uso)
+    } catch (err) {
+      console.error(err)
+    } finally {
+      setCheckingUso(false)
+    }
+  }
+
+  const handleConfirmDeleteCategoria = async () => {
+    if (!deletingCategoria) return
+    setDeletingCatLoading(true)
+    try {
+      await CategoriaService.delete(deletingCategoria.id)
+      toast.success('Categoria excluída com sucesso!')
+      setIsDeleteCatModalOpen(false)
+      setDeletingCategoria(null)
+      loadData()
+    } catch (err: any) {
+      toast.error(err?.message || 'Erro ao excluir categoria.')
+    } finally {
+      setDeletingCatLoading(false)
+    }
+  }
+
   return (
     <div className="space-y-6 animate-fade-in max-w-5xl mx-auto">
       {/* Header */}
@@ -303,6 +418,13 @@ export default function ConfiguracoesPage() {
           >
             <Shield className="w-4 h-4" />
             <span>Usuários & Permissões</span>
+          </TabsTrigger>
+          <TabsTrigger
+            value="categorias"
+            className="data-[state=active]:bg-[#E63946] data-[state=active]:text-white text-xs font-semibold px-4 py-2 rounded-lg gap-2 text-slate-300"
+          >
+            <Tag className="w-4 h-4" />
+            <span>Categorias Financeiras</span>
           </TabsTrigger>
           <TabsTrigger
             value="corretores"
@@ -467,6 +589,128 @@ export default function ConfiguracoesPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+        </TabsContent>
+
+        {/* ============================================================== */}
+        {/* ABA CATEGORIAS FINANCEIRAS (CRUD COMPLETO) */}
+        {/* ============================================================== */}
+        <TabsContent value="categorias" className="space-y-4 pt-2">
+          <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-5 shadow-lg space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-[#232A3B]">
+              <div>
+                <h3 className="font-bold text-white text-base flex items-center gap-2">
+                  <Tag className="w-5 h-5 text-[#E63946]" />
+                  Categorias Financeiras
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Gerencie as categorias de receitas e despesas disponíveis no Fluxo de Caixa e no
+                  importador de extrato.
+                </p>
+              </div>
+
+              <Button
+                onClick={handleOpenCreateCategoria}
+                className="bg-[#E63946] hover:bg-[#D62839] text-white text-xs font-bold gap-1.5 h-9"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Nova Categoria</span>
+              </Button>
+            </div>
+
+            {/* Tabela de Categorias */}
+            <div className="divide-y divide-[#232A3B] border border-[#232A3B] rounded-xl overflow-hidden bg-[#0B0E14]">
+              <div className="hidden sm:grid sm:grid-cols-12 gap-3 px-4 py-2.5 bg-[#121722] text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                <span className="col-span-5">Nome da Categoria</span>
+                <span className="col-span-3">Tipo de Lançamento</span>
+                <span className="col-span-2">Status</span>
+                <span className="col-span-2 text-right">Ações</span>
+              </div>
+
+              {categorias.map((cat) => {
+                const tipoBadge =
+                  cat.tipo === 'entrada'
+                    ? {
+                        label: 'Entrada (Receita)',
+                        bg: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+                      }
+                    : cat.tipo === 'saida'
+                      ? {
+                          label: 'Saída (Despesa)',
+                          bg: 'bg-red-500/15 text-red-400 border-red-500/30',
+                        }
+                      : {
+                          label: 'Ambos (Entrada/Saída)',
+                          bg: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
+                        }
+
+                return (
+                  <div
+                    key={cat.id}
+                    className="p-3.5 sm:px-4 sm:py-3 flex flex-col sm:grid sm:grid-cols-12 gap-2 sm:gap-3 sm:items-center hover:bg-[#1A1F2E]/40 transition-colors"
+                  >
+                    <div className="col-span-5 flex items-center gap-2.5">
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0 shadow-sm"
+                        style={{ backgroundColor: cat.cor || '#E63946' }}
+                      />
+                      <span className="font-bold text-white text-sm truncate">{cat.nome}</span>
+                    </div>
+
+                    <div className="col-span-3 flex items-center">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded border ${tipoBadge.bg}`}
+                      >
+                        {tipoBadge.label}
+                      </span>
+                    </div>
+
+                    <div className="col-span-2 flex items-center">
+                      {cat.ativo ? (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+                          Ativa
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-slate-500/20 text-slate-400 border border-slate-500/30">
+                          Inativa
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="col-span-2 flex items-center justify-end gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleOpenEditCategoria(cat)}
+                        className="h-8 text-xs text-slate-300 hover:text-white hover:bg-[#1A2234] gap-1"
+                      >
+                        <Edit2 className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Editar</span>
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => handleOpenDeleteCategoria(cat)}
+                        className="h-8 w-8 text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                )
+              })}
+
+              {categorias.length === 0 && (
+                <div className="p-8 text-center text-xs text-slate-400 space-y-2">
+                  <Tag className="w-8 h-8 text-slate-600 mx-auto" />
+                  <p className="font-semibold text-slate-300">Nenhuma categoria cadastrada</p>
+                  <p className="text-slate-500 text-[11px]">
+                    Cadastre categorias personalizadas para classificar suas transações e despesas.
+                    O sistema usará essas categorias nos formulários e no importador de extrato.
+                  </p>
+                </div>
+              )}
             </div>
           </div>
         </TabsContent>
@@ -857,6 +1101,221 @@ export default function ConfiguracoesPage() {
               </Button>
             </DialogFooter>
           </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Criar / Editar Categoria Financeira */}
+      <Dialog open={isCategoriaModalOpen} onOpenChange={setIsCategoriaModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <Tag className="w-5 h-5 text-[#E63946]" />
+              {editingCategoria ? 'Editar Categoria' : 'Nova Categoria'}
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-400">
+              {editingCategoria
+                ? 'Atualize os dados e o tipo de aplicação da categoria.'
+                : 'Defina o nome e em quais tipos de lançamentos ela será usada.'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <form onSubmit={handleSaveCategoria} className="space-y-4 pt-2">
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1">
+                Nome da Categoria *
+              </label>
+              <Input
+                type="text"
+                placeholder="Ex: Aluguel, Combustível, Assessoria Jurídica"
+                value={catNome}
+                onChange={(e) => setCatNome(e.target.value)}
+                required
+                className="bg-[#0B0E14] border-[#232A3B] text-xs h-9 text-slate-100 placeholder:text-slate-600"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Tipo de Lançamento *
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCatTipo('saida')}
+                  className={`p-2.5 rounded-xl border flex flex-col items-center text-center gap-1 transition-all ${
+                    catTipo === 'saida'
+                      ? 'border-red-500 bg-red-500/15 text-white'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-xs font-bold text-red-400">Saída</span>
+                  <span className="text-[10px] text-slate-400">Despesas</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCatTipo('entrada')}
+                  className={`p-2.5 rounded-xl border flex flex-col items-center text-center gap-1 transition-all ${
+                    catTipo === 'entrada'
+                      ? 'border-emerald-500 bg-emerald-500/15 text-white'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-xs font-bold text-emerald-400">Entrada</span>
+                  <span className="text-[10px] text-slate-400">Receitas</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setCatTipo('ambos')}
+                  className={`p-2.5 rounded-xl border flex flex-col items-center text-center gap-1 transition-all ${
+                    catTipo === 'ambos'
+                      ? 'border-blue-500 bg-blue-500/15 text-white'
+                      : 'border-[#232A3B] bg-[#0B0E14] text-slate-400 hover:text-slate-200'
+                  }`}
+                >
+                  <span className="text-xs font-bold text-blue-400">Ambos</span>
+                  <span className="text-[10px] text-slate-400">Entrada/Saída</span>
+                </button>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">
+                Cor de Destaque
+              </label>
+              <div className="flex items-center gap-2">
+                <input
+                  type="color"
+                  value={catCor}
+                  onChange={(e) => setCatCor(e.target.value)}
+                  className="w-9 h-9 rounded-lg border border-[#232A3B] bg-[#0B0E14] cursor-pointer p-0.5"
+                />
+                <div className="flex flex-wrap gap-1.5">
+                  {[
+                    '#E63946',
+                    '#2A9D8F',
+                    '#E76F51',
+                    '#457B9D',
+                    '#F4A261',
+                    '#9B5DE5',
+                    '#00BBF9',
+                  ].map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setCatCor(c)}
+                      className={`w-6 h-6 rounded-full border transition-all ${
+                        catCor.toLowerCase() === c.toLowerCase()
+                          ? 'border-white scale-110 shadow-md'
+                          : 'border-transparent hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: c }}
+                    />
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] flex items-center justify-between">
+              <div>
+                <p className="text-xs font-semibold text-slate-200">Categoria Ativa</p>
+                <p className="text-[11px] text-slate-400">
+                  Visível nos selects de novas transações e despesas
+                </p>
+              </div>
+              <Switch checked={catAtivo} onCheckedChange={setCatAtivo} />
+            </div>
+
+            <DialogFooter className="pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsCategoriaModalOpen(false)}
+                className="bg-transparent border-[#232A3B] text-slate-300"
+              >
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                disabled={savingCategoria}
+                className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold"
+              >
+                {savingCategoria ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  'Salvar Categoria'
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Confirmação de Exclusão de Categoria com aviso de lançamentos vinculados */}
+      <Dialog open={isDeleteCatModalOpen} onOpenChange={setIsDeleteCatModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-md p-6 rounded-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-base font-bold text-white flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-500" />
+              Excluir Categoria
+            </DialogTitle>
+            <DialogDescription className="text-xs text-slate-300 mt-2">
+              Tem certeza que deseja excluir permanentemente a categoria{' '}
+              <strong className="text-white">"{deletingCategoria?.nome}"</strong>?
+            </DialogDescription>
+          </DialogHeader>
+
+          {checkingUso ? (
+            <div className="py-4 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+              <Loader2 className="w-4 h-4 animate-spin text-[#E63946]" />
+              <span>Verificando lançamentos vinculados...</span>
+            </div>
+          ) : catUsoCount && catUsoCount.total > 0 ? (
+            <div className="my-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs space-y-2">
+              <div className="flex items-center gap-2 text-amber-400 font-bold">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>Aviso de vínculos existentes ({catUsoCount.total} lançamento(s))</span>
+              </div>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                Esta categoria está associada a{' '}
+                <strong>{catUsoCount.transacoes} transação(ões)</strong> e{' '}
+                <strong>{catUsoCount.despesas} despesa(s)</strong>.
+              </p>
+              <p className="text-slate-400 text-[11px]">
+                A exclusão <strong>não apagará</strong> seus lançamentos existentes; o histórico
+                permanecerá registrado com o nome anterior.
+              </p>
+            </div>
+          ) : (
+            <p className="my-2 text-xs text-slate-400">
+              Nenhum lançamento vinculado atualmente a esta categoria.
+            </p>
+          )}
+
+          <DialogFooter className="flex items-center justify-end gap-2 pt-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={deletingCatLoading}
+              onClick={() => setIsDeleteCatModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={deletingCatLoading}
+              onClick={handleConfirmDeleteCategoria}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold"
+            >
+              {deletingCatLoading ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                'Excluir Categoria'
+              )}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

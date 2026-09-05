@@ -37,7 +37,11 @@ const STOP_PATTERNS = [
   /^OUVIDORIA SICOOB/i,
 ]
 
-export function parseSicoobText(fullText: string, anoFallback?: number): ExtratoParseResult {
+export function parseSicoobText(
+  fullText: string,
+  anoFallback?: number,
+  categoriasCadastradas?: Array<{ nome: string; tipo: string; ativo?: boolean }>,
+): ExtratoParseResult {
   const lines = fullText
     .split(/\r?\n/)
     .map((l) => l.trim())
@@ -114,7 +118,7 @@ export function parseSicoobText(fullText: string, anoFallback?: number): Extrato
       }
     }
 
-    const categoria = sugerirCategoria(descricaoCompleta, tipo)
+    const categoria = sugerirCategoria(descricaoCompleta, tipo, categoriasCadastradas)
 
     itens.push({
       id: `sicoob-${itens.length + 1}-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,

@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-05T18:45:09.653Z",
+  "generatedAt": "2026-09-05T19:07:18.303Z",
   "collections": [
     {
       "name": "users",
@@ -426,23 +426,6 @@
           "system": false
         },
         {
-          "name": "categoria",
-          "type": "select",
-          "required": true,
-          "system": false,
-          "selectValues": [
-            "comissao",
-            "imposto",
-            "repasse",
-            "aluguel",
-            "marketing",
-            "salarios",
-            "utilidades",
-            "manutencao",
-            "outros"
-          ]
-        },
-        {
           "name": "valor",
           "type": "number",
           "required": true,
@@ -526,6 +509,12 @@
           "required": false,
           "system": false,
           "collectionRef": "despesas"
+        },
+        {
+          "name": "categoria",
+          "type": "text",
+          "required": false,
+          "system": false
         }
       ],
       "indexes": [
@@ -549,13 +538,6 @@
           "type": "text",
           "required": true,
           "system": false
-        },
-        {
-          "name": "categoria",
-          "type": "select",
-          "required": true,
-          "system": false,
-          "selectValues": ["aluguel", "marketing", "salarios", "utilidades", "manutencao", "outros"]
         },
         {
           "name": "valor",
@@ -636,6 +618,12 @@
         },
         {
           "name": "observacoes",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "categoria",
           "type": "text",
           "required": false,
           "system": false
@@ -872,6 +860,69 @@
         }
       ],
       "indexes": []
+    },
+    {
+      "name": "categorias",
+      "type": "base",
+      "apiRules": {
+        "list": "@request.auth.id != ''",
+        "view": "@request.auth.id != ''",
+        "create": "@request.auth.id != ''",
+        "update": "@request.auth.id != ''",
+        "delete": "@request.auth.id != ''"
+      },
+      "fields": [
+        {
+          "name": "nome",
+          "type": "text",
+          "required": true,
+          "system": false
+        },
+        {
+          "name": "tipo",
+          "type": "select",
+          "required": true,
+          "system": false,
+          "selectValues": ["entrada", "saida", "ambos"]
+        },
+        {
+          "name": "cor",
+          "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "ativo",
+          "type": "bool",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "user",
+          "type": "relation",
+          "required": false,
+          "system": false,
+          "collectionRef": "users"
+        },
+        {
+          "name": "created",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate"]
+        },
+        {
+          "name": "updated",
+          "type": "autodate",
+          "required": false,
+          "system": false,
+          "autodateTriggers": ["onCreate", "onUpdate"]
+        }
+      ],
+      "indexes": [
+        "CREATE INDEX idx_categorias_tipo ON categorias (tipo)",
+        "CREATE INDEX idx_categorias_ativo ON categorias (ativo)"
+      ]
     }
   ]
 }

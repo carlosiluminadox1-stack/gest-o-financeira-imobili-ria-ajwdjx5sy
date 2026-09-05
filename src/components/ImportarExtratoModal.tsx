@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import {
   UploadCloud,
   FileText,
@@ -31,8 +31,8 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { toast } from 'sonner'
-import { Transacao, TransacaoCategoria, TransacaoTipo } from '@/types'
-import { TransacaoService } from '@/services/imobService'
+import { Transacao, TransacaoCategoria, TransacaoTipo, CategoriaFinanceira } from '@/types'
+import { TransacaoService, CategoriaService } from '@/services/imobService'
 import { processExtratoFile } from '@/lib/extrato/extratoProcessor'
 import { detectarDuplicados } from '@/lib/extrato/duplicateDetector'
 import { ExtratoItemRaw, ExtratoParseResult, formatMoedaPtBr } from '@/lib/extrato/types'
@@ -72,6 +72,15 @@ export const ImportarExtratoModal: React.FC<ImportarExtratoModalProps> = ({
   const [parseResult, setParseResult] = useState<ExtratoParseResult | null>(null)
   const [itens, setItens] = useState<ExtratoItemRaw[]>([])
   const [anoCompetencia, setAnoCompetencia] = useState<number>(new Date().getFullYear())
+  const [categoriasCadastradas, setCategoriasCadastradas] = useState<CategoriaFinanceira[]>([])
+
+  useEffect(() => {
+    if (open) {
+      CategoriaService.getAll()
+        .then((cats) => setCategoriasCadastradas(cats))
+        .catch(() => {})
+    }
+  }, [open])
 
   // Estados da Tela de Revisão
   const [searchTerm, setSearchTerm] = useState('')
@@ -121,7 +130,21 @@ export const ImportarExtratoModal: React.FC<ImportarExtratoModalProps> = ({
     setIsProcessing(true)
 
     try {
-      const res = await processExtratoFile(targetFile, { anoFallback: anoCompetencia })
+      // Carregar categorias atualizadas se ainda não estiverem carregadas
+      let cats = categoriasCadastradas
+      if (cats.length === 0) {
+        try {
+          cats = await CategoriaService.getAll()
+          setCategoriasCadastradas(cats)
+        } catch {
+          /* intentionally ignored */
+        }
+      }
+
+      const res = await processExtratoFile(targetFile, {
+        anoFallback: anoCompetencia,
+        categoriasCadastradas: cats,
+      })
       setParseResult(res)
 
       if (res.periodoExtrato?.anoInferido) {
@@ -750,11 +773,38 @@ export const ImportarExtratoModal: React.FC<ImportarExtratoModalProps> = ({
                                   }
                                   className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-200 text-xs rounded-lg px-2 py-1.5 focus:border-[#E63946] outline-none"
                                 >
-                                  {CATEGORIAS_CONFIG.map((cat) => (
-                                    <option key={cat.id} value={cat.id}>
-                                      {cat.label}
-                                    </option>
-                                  ))}
+                                  {categoriasCadastradas.filter((c) => c.ativo).length > 0 && (
+                                    <optgroup label="Categorias Cadastradas">
+                                      {categoriasCadastradas
+                                        .filter((c) => c.ativo)
+                                        .map((cat) => (
+                                          <option key={cat.id} value={cat.nome}>
+                                            {cat.nome}
+                                          </option>
+                                        ))}
+                                    </optgroup>
+                                  )}
+                                  <optgroup label="Categorias Padrão">
+                                    {CATEGORIAS_CONFIG.map((cat) => (
+                                      <option key={cat.id} value={cat.id}>
+                                        {cat.label}
+                                      </option>
+                                    ))}
+                                  </optgroup>
+                                  {/* Manter a categoria sugerida caso não esteja na lista */}
+                                  {item.categoriaSugerida &&
+                                    !CATEGORIAS_CONFIG.some(
+                                      (c) => c.id === item.categoriaSugerida,
+                                    ) &&
+                                    !categoriasCadastradas.some(
+                                      (c) =>
+                                        c.nome.toLowerCase() ===
+                                        item.categoriaSugerida.toLowerCase(),
+                                    ) && (
+                                      <option value={item.categoriaSugerida}>
+                                        {item.categoriaSugerida}
+                                      </option>
+                                    )}
                                 </select>
                               </td>
 

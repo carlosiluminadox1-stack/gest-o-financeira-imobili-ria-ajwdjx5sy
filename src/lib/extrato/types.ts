@@ -38,8 +38,27 @@ export interface ExtratoParseResult {
 /**
  * Categorização automática baseada em palavras-chave presentes no histórico/descrição
  */
-export function sugerirCategoria(descricao: string, tipo: TransacaoTipo): TransacaoCategoria {
+export function sugerirCategoria(
+  descricao: string,
+  tipo: TransacaoTipo,
+  categoriasCadastradas?: Array<{ nome: string; tipo: string; ativo?: boolean }>,
+): TransacaoCategoria {
   const text = (descricao || '').toLowerCase()
+
+  // 1. Tentar casar primeiro com categorias cadastradas ativas correspondentes ao tipo
+  if (categoriasCadastradas && categoriasCadastradas.length > 0) {
+    const validas = categoriasCadastradas.filter(
+      (c) => (c.ativo === undefined || c.ativo) && (c.tipo === 'ambos' || c.tipo === tipo),
+    )
+    for (const cat of validas) {
+      const nomeLower = cat.nome.toLowerCase().trim()
+      if (nomeLower && (text.includes(nomeLower) || nomeLower.includes(text.trim()))) {
+        return cat.nome
+      }
+    }
+  }
+
+  // 2. Fallback para regras padrão por palavras-chave
 
   // Se for entrada
   if (tipo === 'entrada') {
