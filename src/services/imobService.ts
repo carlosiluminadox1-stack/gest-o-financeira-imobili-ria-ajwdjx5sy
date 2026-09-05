@@ -145,8 +145,8 @@ export const VendaService = {
     corretor: string
     captador?: string
     captadores?: string[]
-    valor_vgv: number
-    percentual_comissao: number
+    valor_vgv?: number
+    percentual_comissao?: number
     valor_comissao?: number
     tipo_venda?: 'venda' | 'locacao' | 'administracao'
     data_recebimento?: string
@@ -159,12 +159,30 @@ export const VendaService = {
     valor_recebido?: number
     data_venda: string
     status: 'realizada' | 'pendente' | 'cancelada'
-    userId: string
+    userId?: string
   }): Promise<Venda> {
-    const valor_comissao =
-      data.valor_comissao !== undefined
-        ? data.valor_comissao
-        : (data.valor_vgv * data.percentual_comissao) / 100
+    const resolvedUserId = (data.userId || pb.authStore.record?.id || '').trim()
+    if (!resolvedUserId) {
+      throw new Error('Usuário não autenticado')
+    }
+
+    const valor_vgv =
+      data.valor_vgv !== undefined && data.valor_vgv !== null ? Number(data.valor_vgv) : 0
+    let valor_comissao =
+      data.valor_comissao !== undefined && data.valor_comissao !== null
+        ? Number(data.valor_comissao)
+        : (valor_vgv * (Number(data.percentual_comissao) || 0)) / 100
+
+    let percentual_comissao =
+      data.percentual_comissao !== undefined && data.percentual_comissao !== null
+        ? Number(data.percentual_comissao)
+        : 0
+
+    // Quando modo valor_fixo sem percentual: percentual_comissao = valor_comissao/valor_vgv*100 se vgv>0, senão 0
+    if (data.is_valor_fixo && (!percentual_comissao || percentual_comissao <= 0)) {
+      percentual_comissao = valor_vgv > 0 ? (valor_comissao / valor_vgv) * 100 : 0
+    }
+
     const situacao = data.situacao_recebimento || 'Recebido'
     const forma = data.forma_pagamento || 'Centralizada'
     const valorRecebido =
@@ -174,20 +192,15 @@ export const VendaService = {
     const captadoresList =
       data.captadores && data.captadores.length > 0
         ? data.captadores.filter(Boolean)
-        : data.captador
-          ? [data.captador]
+        : data.captador && data.captador.trim().length > 0
+          ? [data.captador.trim()]
           : []
-    const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : null
+    const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : undefined
 
-    const record = await pb.collection('vendas').create<Venda>({
+    // Não enviar string vazia "" em relações opcionais: omitir o campo (undefined) quando vazio
+    const createPayload: Record<string, unknown> = {
       titulo_imovel: data.titulo_imovel,
-      cliente: data.cliente,
-      corretor: data.corretor,
-      captador: primaryCaptador,
-      captadores: captadoresList,
-      valor_vgv: data.valor_vgv,
-      percentual_comissao: data.percentual_comissao,
-      valor_comissao,
+      cliente: data.cliente || '',
       tipo_venda: data.tipo_venda || 'venda',
       data_recebimento: data.data_recebimento || data.data_venda,
       is_valor_fixo: Boolean(data.is_valor_fixo),
@@ -196,8 +209,25 @@ export const VendaService = {
       valor_recebido: valorRecebido,
       data_venda: data.data_venda,
       status: data.status,
-      user: data.userId,
-    })
+      user: resolvedUserId,
+      valor_comissao,
+      percentual_comissao,
+    }
+
+    if (data.corretor && data.corretor.trim().length > 0) {
+      createPayload.corretor = data.corretor.trim()
+    }
+    if (primaryCaptador) {
+      createPayload.captador = primaryCaptador
+    }
+    if (captadoresList.length > 0) {
+      createPayload.captadores = captadoresList
+    }
+    if (valor_vgv > 0 || !data.is_valor_fixo) {
+      createPayload.valor_vgv = valor_vgv
+    }
+
+    const record = await pb.collection('vendas').create<Venda>(createPayload)
 
     // Processar financeiro se realizada ou com valor recebido > 0
     if (data.status === 'realizada' && valorRecebido > 0) {
@@ -206,7 +236,7 @@ export const VendaService = {
         tituloImovel: data.titulo_imovel,
         clienteNome: data.cliente,
         corretorId: data.corretor,
-        captadorId: primaryCaptador || undefined,
+        captadorId: primaryCaptador,
         captadoresIds: captadoresList,
         formaPagamento: forma,
         valorBase: valorRecebido,
@@ -216,7 +246,7 @@ export const VendaService = {
         pctCapt: data.pct_captador,
         dataVenda: data.data_recebimento || data.data_venda,
         dataCompetencia: data.data_venda,
-        userId: data.userId,
+        userId: resolvedUserId,
         ehComplementar: false,
       })
     }

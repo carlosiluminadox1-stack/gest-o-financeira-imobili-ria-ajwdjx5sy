@@ -26,6 +26,7 @@ import {
   TransacaoService,
 } from '@/services/imobService'
 import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
+import { formatPocketBaseError } from '@/lib/pocketbase/errors'
 import {
   Building2,
   Calendar,
@@ -212,6 +213,16 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       }
       return next
     })
+    // Limpar erros da parte ao editar
+    setErrors((prev) => {
+      const prefix = `p${activePartIndex}_`
+      const nextErrs = { ...prev }
+      Object.keys(updates).forEach((k) => {
+        delete nextErrs[`${prefix}${k}`]
+      })
+      delete nextErrs.divisao
+      return nextErrs
+    })
   }
 
   // Divisão ao vivo da parte ativa
@@ -292,6 +303,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
   // Validação completa antes do salvamento
   const validateAll = (): boolean => {
     const errs: Record<string, string> = {}
+    let firstPartWithError = -1
 
     if (!valorBate) {
       errs.divisao = `A soma das partes (${formatCurrency(somaComissoesPartes)}) deve ser igual ao valor da transação (${formatCurrency(totalTransacao)}). Diferença: ${formatCurrency(diferencaDivisao)}`
@@ -299,30 +311,62 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
 
     partes.forEach((p, idx) => {
       const prefix = `p${idx}_`
-      if (!p.titulo.trim()) {
-        errs[`${prefix}titulo`] = `Parte ${idx + 1}: Informe a descrição do imóvel`
+      let hasPartError = false
+
+      if (!p.titulo || !p.titulo.trim()) {
+        errs[`${prefix}titulo`] = 'Descrição do imóvel é obrigatória'
+        hasPartError = true
       }
-      if (!p.corretorPrincipal) {
-        errs[`${prefix}corretor`] = `Parte ${idx + 1}: Selecione o corretor responsável`
+      if (!p.corretorPrincipal || !p.corretorPrincipal.trim()) {
+        errs[`${prefix}corretorPrincipal`] = 'Selecione o corretor responsável'
+        hasPartError = true
       }
-      if (!p.competencia) {
-        errs[`${prefix}competencia`] = `Parte ${idx + 1}: Informe a competência`
+      if (!p.competencia || !p.competencia.trim()) {
+        errs[`${prefix}competencia`] = 'Informe o mês de competência'
+        hasPartError = true
       }
-      if (p.valorComissao <= 0) {
-        errs[`${prefix}comissao`] = `Parte ${idx + 1}: Valor da comissão deve ser maior que zero`
+      if (typeof p.valorComissao !== 'number' || isNaN(p.valorComissao) || p.valorComissao <= 0) {
+        errs[`${prefix}valorComissao`] = 'Valor da comissão deve ser maior que zero'
+        hasPartError = true
       }
-      if (p.situacaoRecebimento === 'Parcial') {
-        if (!p.valorRecebido || Number(p.valorRecebido) <= 0) {
-          errs[`${prefix}recebido`] = `Parte ${idx + 1}: Informe o valor recebido nesta etapa`
-        } else if (Number(p.valorRecebido) > p.valorComissao) {
-          errs[`${prefix}recebido`] =
-            `Parte ${idx + 1}: Valor recebido não pode ser maior que a comissão`
+
+      // Se modo % sobre VGV, exigir VGV > 0 e % > 0
+      if (p.modoCalculo === '%_vgv') {
+        const vgvNum = Number(p.vgv)
+        const pctNum = Number(p.pctNegociacao)
+        if (!p.vgv || isNaN(vgvNum) || vgvNum <= 0) {
+          errs[`${prefix}vgv`] = 'No cálculo por %, informe o VGV maior que zero'
+          hasPartError = true
         }
+        if (!p.pctNegociacao || isNaN(pctNum) || pctNum <= 0) {
+          errs[`${prefix}pctNegociacao`] = 'Informe a % da negociação maior que zero'
+          hasPartError = true
+        }
+      }
+
+      // Se situação Parcial, validar 0 < valorRecebido <= valorComissao
+      if (p.situacaoRecebimento === 'Parcial') {
+        const recNum = Number(p.valorRecebido)
+        if (p.valorRecebido === '' || isNaN(recNum) || recNum <= 0) {
+          errs[`${prefix}valorRecebido`] = 'Informe o valor recebido maior que zero'
+          hasPartError = true
+        } else if (recNum > p.valorComissao) {
+          errs[`${prefix}valorRecebido`] =
+            'Valor recebido não pode ser maior que o valor da comissão'
+          hasPartError = true
+        }
+      }
+
+      if (hasPartError && firstPartWithError === -1) {
+        firstPartWithError = idx
       }
     })
 
     setErrors(errs)
     if (Object.keys(errs).length > 0) {
+      if (firstPartWithError !== -1 && firstPartWithError !== activePartIndex) {
+        setActivePartIndex(firstPartWithError)
+      }
       const firstMsg = Object.values(errs)[0]
       toast.error(firstMsg)
       return false
@@ -350,20 +394,20 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
           ? new Date(p.dataRecebimento + 'T12:00:00.000Z').toISOString()
           : dataCompetenciaIso
 
-        const finalVgv = p.modoCalculo === '%_vgv' ? Number(p.vgv) : Number(p.vgv || 0)
+        const finalVgv = p.modoCalculo === '%_vgv' ? Number(p.vgv) : p.vgv ? Number(p.vgv) : 0
         const finalPct = p.modoCalculo === '%_vgv' ? Number(p.pctNegociacao) : 0
         const finalComissao = Number(p.valorComissao)
         const finalRecebido =
           p.situacaoRecebimento === 'Recebido' ? finalComissao : Number(p.valorRecebido)
 
-        const finalCaptadores = p.captadores.filter(Boolean)
+        const finalCaptadores = p.captadores.filter((c) => Boolean(c && c.trim()))
 
         const createdVenda = await VendaService.create({
           titulo_imovel: p.titulo.trim(),
           cliente: p.cliente.trim(),
-          corretor: p.corretorPrincipal,
+          corretor: p.corretorPrincipal.trim(),
           captador: finalCaptadores.length > 0 ? finalCaptadores[0] : undefined,
-          captadores: finalCaptadores,
+          captadores: finalCaptadores.length > 0 ? finalCaptadores : undefined,
           valor_vgv: finalVgv,
           percentual_comissao: finalPct,
           valor_comissao: finalComissao,
@@ -396,15 +440,20 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
 
       onOpenChange(false)
       onSuccess()
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Erro na conversão em venda:', err)
+      const userMessage = formatPocketBaseError(
+        err,
+        'Erro ao converter transação em venda. Verifique os dados informados.',
+      )
+
       // Se criou alguma venda parcial antes de falhar, alertar o usuário
       if (criadasIds.length > 0) {
         toast.error(
-          `Erro durante o processo de conversão. Algumas vendas parciais foram registradas. A transação original foi mantida para segurança.`,
+          `Erro durante a conversão: ${userMessage}. Atenção: algumas partes foram criadas antes da falha. A transação original foi preservada.`,
         )
       } else {
-        toast.error(err?.message || 'Erro ao converter transação em venda.')
+        toast.error(userMessage)
       }
     } finally {
       setSaving(false)
@@ -509,16 +558,22 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                   <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-[#232A3B]/60">
                     {partes.map((p, idx) => {
                       const isActive = idx === activePartIndex
+                      const partHasError = Object.keys(errors).some((k) => k.startsWith(`p${idx}_`))
                       return (
                         <div
                           key={p.id}
                           className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold cursor-pointer transition-all border ${
                             isActive
                               ? 'bg-[#E63946] text-white border-[#E63946]'
-                              : 'bg-[#0B0E14] text-slate-300 border-[#232A3B] hover:border-slate-500'
+                              : partHasError
+                                ? 'bg-[#0B0E14] text-red-300 border-red-500/70 hover:border-red-400'
+                                : 'bg-[#0B0E14] text-slate-300 border-[#232A3B] hover:border-slate-500'
                           }`}
                           onClick={() => setActivePartIndex(idx)}
                         >
+                          {partHasError && !isActive && (
+                            <AlertCircle className="w-3 h-3 text-red-400 inline" />
+                          )}
                           <span>Venda {idx + 1}</span>
                           <span className="opacity-80 tabular-nums">
                             ({formatCurrency(Number(p.valorComissao) || 0)})
@@ -606,10 +661,19 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                           type="month"
                           value={currentPart.competencia}
                           onChange={(e) => updateCurrentPart({ competencia: e.target.value })}
-                          className="w-full bg-[#0B0E14] border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 pr-8 outline-none focus:border-[#E63946]"
+                          className={`w-full bg-[#0B0E14] text-slate-100 text-xs rounded-lg h-10 px-3 pr-8 outline-none focus:border-[#E63946] ${
+                            errors[`p${activePartIndex}_competencia`]
+                              ? 'border-red-500'
+                              : 'border-[#232A3B]'
+                          }`}
                         />
                         <Calendar className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                       </div>
+                      {errors[`p${activePartIndex}_competencia`] && (
+                        <p className="text-[10px] text-red-400 mt-1">
+                          {errors[`p${activePartIndex}_competencia`]}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -654,8 +718,15 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                       placeholder="Ex: Apartamento Bela Vista ou descrição da venda"
                       value={currentPart.titulo}
                       onChange={(e) => updateCurrentPart({ titulo: e.target.value })}
-                      className="bg-[#0B0E14] border-[#232A3B] text-xs h-10 text-slate-100 placeholder:text-slate-600"
+                      className={`bg-[#0B0E14] text-xs h-10 text-slate-100 placeholder:text-slate-600 ${
+                        errors[`p${activePartIndex}_titulo`] ? 'border-red-500' : 'border-[#232A3B]'
+                      }`}
                     />
+                    {errors[`p${activePartIndex}_titulo`] && (
+                      <p className="text-[10px] text-red-400 mt-1">
+                        {errors[`p${activePartIndex}_titulo`]}
+                      </p>
+                    )}
                   </div>
 
                   {/* Bloco: FORMA DE PAGAMENTO DA COMISSÃO */}
@@ -777,11 +848,21 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                   : currentPart.valorRecebido,
                             })
                           }}
-                          className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
+                          className={`bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 ${
+                            errors[`p${activePartIndex}_vgv`]
+                              ? 'border-2 border-red-500'
+                              : 'border-0'
+                          } focus:ring-2 focus:ring-[#E63946]`}
                         />
-                        <p className="text-[10px] text-slate-400 mt-1">
-                          Usado para cálculo de metas
-                        </p>
+                        {errors[`p${activePartIndex}_vgv`] ? (
+                          <p className="text-[10px] text-red-400 mt-1">
+                            {errors[`p${activePartIndex}_vgv`]}
+                          </p>
+                        ) : (
+                          <p className="text-[10px] text-slate-400 mt-1">
+                            Usado para cálculo de metas
+                          </p>
+                        )}
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -808,8 +889,17 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                     : currentPart.valorRecebido,
                               })
                             }}
-                            className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10"
+                            className={`bg-[#0B0E14] text-slate-100 font-bold text-xs h-10 ${
+                              errors[`p${activePartIndex}_pctNegociacao`]
+                                ? 'border-red-500'
+                                : 'border-[#232A3B]'
+                            }`}
                           />
+                          {errors[`p${activePartIndex}_pctNegociacao`] && (
+                            <p className="text-[10px] text-red-400 mt-1">
+                              {errors[`p${activePartIndex}_pctNegociacao`]}
+                            </p>
+                          )}
                         </div>
 
                         <div>
@@ -865,8 +955,17 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                     : currentPart.valorRecebido,
                               })
                             }}
-                            className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
+                            className={`bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 ${
+                              errors[`p${activePartIndex}_valorComissao`]
+                                ? 'border-2 border-red-500'
+                                : 'border-0'
+                            } focus:ring-2 focus:ring-[#E63946]`}
                           />
+                          {errors[`p${activePartIndex}_valorComissao`] && (
+                            <p className="text-[10px] text-red-400 mt-1">
+                              {errors[`p${activePartIndex}_valorComissao`]}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -990,7 +1089,11 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                       <select
                         value={currentPart.corretorPrincipal}
                         onChange={(e) => updateCurrentPart({ corretorPrincipal: e.target.value })}
-                        className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
+                        className={`w-full bg-[#121722] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946] ${
+                          errors[`p${activePartIndex}_corretorPrincipal`]
+                            ? 'border-red-500'
+                            : 'border-[#232A3B]'
+                        }`}
                       >
                         <option value="">Selecione o corretor...</option>
                         {corretores
@@ -1001,6 +1104,11 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                             </option>
                           ))}
                       </select>
+                      {errors[`p${activePartIndex}_corretorPrincipal`] && (
+                        <p className="text-[10px] text-red-400 mt-1">
+                          {errors[`p${activePartIndex}_corretorPrincipal`]}
+                        </p>
+                      )}
                     </div>
 
                     {/* 2º Corretor */}
@@ -1182,8 +1290,17 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                             valorRecebido: e.target.value ? Number(e.target.value) : '',
                           })
                         }
-                        className="bg-[#0B0E14] border-amber-500/50 text-xs h-9 text-white font-bold"
+                        className={`bg-[#0B0E14] text-xs h-9 text-white font-bold ${
+                          errors[`p${activePartIndex}_valorRecebido`]
+                            ? 'border-red-500'
+                            : 'border-amber-500/50'
+                        }`}
                       />
+                      {errors[`p${activePartIndex}_valorRecebido`] && (
+                        <p className="text-[10px] text-red-400 mt-1">
+                          {errors[`p${activePartIndex}_valorRecebido`]}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1210,7 +1327,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
 
                 <Button
                   type="submit"
-                  disabled={saving || !valorBate}
+                  disabled={saving || !valorBate || Object.keys(errors).length > 0}
                   className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold gap-1.5 text-xs h-9 shadow-md shadow-emerald-900/20"
                 >
                   {saving ? (
