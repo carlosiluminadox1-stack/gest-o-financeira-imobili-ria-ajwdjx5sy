@@ -997,577 +997,588 @@ export default function Vendas() {
 
       {/* Modal NOVA ENTRADA / EDITAR ENTRADA exatamente conforme os prints */}
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-xl max-h-[92vh] overflow-y-auto p-5 sm:p-6 shadow-2xl">
-          <DialogHeader className="pb-2 border-b border-[#232A3B]/60">
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 w-[calc(100vw-1.5rem)] sm:w-[94vw] max-w-2xl max-h-[92vh] flex flex-col p-0 shadow-2xl rounded-2xl overflow-hidden">
+          {/* Header Fixo */}
+          <DialogHeader className="p-4 sm:p-5 pb-3 sm:pb-4 border-b border-[#232A3B]/80 bg-[#121722] shrink-0 text-left">
             <div className="flex items-center justify-between">
               <DialogTitle className="text-sm sm:text-base font-black text-[#E63946] tracking-wider uppercase">
                 {editingVenda ? 'EDITAR ENTRADA' : 'NOVA ENTRADA'}
               </DialogTitle>
             </div>
-            <DialogDescription className="text-[11px] text-slate-400">
+            <DialogDescription className="text-[11px] sm:text-xs text-slate-400 mt-1 leading-relaxed">
               Preencha os dados da negociação para calcular e dividir a comissão automaticamente.
             </DialogDescription>
           </DialogHeader>
 
-          <form onSubmit={handleSaveVenda} className="space-y-4 pt-2">
-            {/* Linha 1: TIPO e COMPETÊNCIA */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  TIPO *
-                </label>
-                <select
-                  value={formTipo}
-                  onChange={(e) => setFormTipo(e.target.value as TipoVenda)}
-                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 outline-none focus:border-[#E63946]"
-                >
-                  <option value="venda">Comissão de Venda</option>
-                  <option value="locacao">Comissão de locação</option>
-                  <option value="administracao">Comissão de Administração</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  COMPETÊNCIA *
-                </label>
-                <div className="relative">
-                  <Input
-                    type="month"
-                    value={formCompetencia}
-                    onChange={(e) => setFormCompetencia(e.target.value)}
-                    className="w-full bg-[#0B0E14] border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 pr-8 outline-none focus:border-[#E63946]"
-                  />
-                  <Calendar className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <form onSubmit={handleSaveVenda} className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {/* Corpo Rolável */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-4 space-y-4">
+              {/* Linha 1: TIPO e COMPETÊNCIA */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    TIPO *
+                  </label>
+                  <select
+                    value={formTipo}
+                    onChange={(e) => setFormTipo(e.target.value as TipoVenda)}
+                    className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 outline-none focus:border-[#E63946]"
+                  >
+                    <option value="venda">Comissão de Venda</option>
+                    <option value="locacao">Comissão de locação</option>
+                    <option value="administracao">Comissão de Administração</option>
+                  </select>
                 </div>
-                {formErrors.competencia && (
-                  <p className="text-[10px] text-red-400 mt-0.5">{formErrors.competencia}</p>
-                )}
-              </div>
-            </div>
 
-            {/* Linha 2: DATA DE RECEBIMENTO e CLIENTE COMPRADOR */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  DATA DE RECEBIMENTO
-                </label>
-                <div className="relative">
-                  <Input
-                    type="date"
-                    value={formDataRecebimento}
-                    onChange={(e) => setFormDataRecebimento(e.target.value)}
-                    className="w-full bg-[#0B0E14] border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 pr-8 outline-none focus:border-[#E63946]"
-                  />
-                  <Calendar className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    COMPETÊNCIA *
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="month"
+                      value={formCompetencia}
+                      onChange={(e) => setFormCompetencia(e.target.value)}
+                      className="w-full bg-[#0B0E14] border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 pr-8 outline-none focus:border-[#E63946]"
+                    />
+                    <Calendar className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                  {formErrors.competencia && (
+                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.competencia}</p>
+                  )}
                 </div>
               </div>
 
+              {/* Linha 2: DATA DE RECEBIMENTO e CLIENTE COMPRADOR */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    DATA DE RECEBIMENTO
+                  </label>
+                  <div className="relative">
+                    <Input
+                      type="date"
+                      value={formDataRecebimento}
+                      onChange={(e) => setFormDataRecebimento(e.target.value)}
+                      className="w-full bg-[#0B0E14] border-[#232A3B] text-slate-100 text-xs rounded-lg h-10 px-3 pr-8 outline-none focus:border-[#E63946]"
+                    />
+                    <Calendar className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                    CLIENTE COMPRADOR
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="Nome do cliente"
+                    value={formCliente}
+                    onChange={(e) => setFormCliente(e.target.value)}
+                    className="bg-[#0B0E14] border-[#232A3B] text-xs h-10 text-slate-100 placeholder:text-slate-600"
+                  />
+                </div>
+              </div>
+
+              {/* Linha 3: DESCRIÇÃO (IMÓVEL) */}
               <div>
                 <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                  CLIENTE COMPRADOR
+                  DESCRIÇÃO (IMÓVEL) *
                 </label>
                 <Input
                   type="text"
-                  placeholder="Nome do cliente"
-                  value={formCliente}
-                  onChange={(e) => setFormCliente(e.target.value)}
+                  placeholder="Ex: Apartamento Bela Vista"
+                  value={formTitulo}
+                  onChange={(e) => setFormTitulo(e.target.value)}
                   className="bg-[#0B0E14] border-[#232A3B] text-xs h-10 text-slate-100 placeholder:text-slate-600"
                 />
+                {formErrors.titulo && (
+                  <p className="text-[10px] text-red-400 mt-0.5">{formErrors.titulo}</p>
+                )}
               </div>
-            </div>
 
-            {/* Linha 3: DESCRIÇÃO (IMÓVEL) */}
-            <div>
-              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
-                DESCRIÇÃO (IMÓVEL) *
-              </label>
-              <Input
-                type="text"
-                placeholder="Ex: Apartamento Bela Vista"
-                value={formTitulo}
-                onChange={(e) => setFormTitulo(e.target.value)}
-                className="bg-[#0B0E14] border-[#232A3B] text-xs h-10 text-slate-100 placeholder:text-slate-600"
-              />
-              {formErrors.titulo && (
-                <p className="text-[10px] text-red-400 mt-0.5">{formErrors.titulo}</p>
+              {/* Bloco: FORMA DE PAGAMENTO DA COMISSÃO */}
+              <div className="p-3.5 rounded-xl bg-[#0B0E14]/70 border border-[#232A3B] space-y-2">
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  FORMA DE PAGAMENTO DA COMISSÃO
+                </label>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {/* Opção Centralizada */}
+                  <div
+                    onClick={() => setFormFormaPagamento('Centralizada')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                      formFormaPagamento === 'Centralizada'
+                        ? 'bg-[#151C2A] border-[#E63946] ring-1 ring-[#E63946]/40'
+                        : 'bg-[#0E121B] border-[#232A3B] hover:border-slate-600'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="forma_pagamento"
+                      checked={formFormaPagamento === 'Centralizada'}
+                      onChange={() => setFormFormaPagamento('Centralizada')}
+                      className="mt-0.5 accent-[#E63946] cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-white block">Centralizada</span>
+                      <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
+                        Imobiliária recebe tudo (6% imposto sobre o total)
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Opção Separada */}
+                  <div
+                    onClick={() => setFormFormaPagamento('Separada')}
+                    className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                      formFormaPagamento === 'Separada'
+                        ? 'bg-[#151C2A] border-[#E63946] ring-1 ring-[#E63946]/40'
+                        : 'bg-[#0E121B] border-[#232A3B] hover:border-slate-600'
+                    }`}
+                  >
+                    <input
+                      type="radio"
+                      name="forma_pagamento"
+                      checked={formFormaPagamento === 'Separada'}
+                      onChange={() => setFormFormaPagamento('Separada')}
+                      className="mt-0.5 accent-[#E63946] cursor-pointer"
+                    />
+                    <div>
+                      <span className="text-xs font-bold text-white block">Separada</span>
+                      <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
+                        Cada um recebe direto (6% só sobre parte da imobiliária)
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Seletor: % sobre VGV vs Valor Fixo */}
+              <div className="flex items-center gap-2 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setModoCalculo('%_vgv')}
+                  className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    modoCalculo === '%_vgv'
+                      ? 'bg-[#E63946] text-white shadow-md'
+                      : 'bg-[#0B0E14] border border-[#232A3B] text-slate-400 hover:text-white'
+                  }`}
+                >
+                  % sobre VGV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setModoCalculo('valor_fixo')}
+                  className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
+                    modoCalculo === 'valor_fixo'
+                      ? 'bg-[#E63946] text-white shadow-md'
+                      : 'bg-[#0B0E14] border border-[#232A3B] text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Valor Fixo
+                </button>
+              </div>
+
+              {/* Campos de VGV e % Negociação OU Valor Fixo */}
+              {modoCalculo === '%_vgv' ? (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      VALOR DO IMÓVEL (VGV) *
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ex: 250000"
+                      value={formVgv}
+                      onChange={(e) =>
+                        setFormVgv(e.target.value !== '' ? Number(e.target.value) : '')
+                      }
+                      className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Usado para cálculo de metas</p>
+                    {formErrors.vgv && (
+                      <p className="text-[10px] text-red-400 mt-0.5">{formErrors.vgv}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      % DA NEGOCIAÇÃO *
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.1"
+                      placeholder="6"
+                      value={formPctNegociacao}
+                      onChange={(e) =>
+                        setFormPctNegociacao(e.target.value !== '' ? Number(e.target.value) : '')
+                      }
+                      className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10"
+                    />
+                    {formErrors.pctNeg && (
+                      <p className="text-[10px] text-red-400 mt-0.5">{formErrors.pctNeg}</p>
+                    )}
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      COMISSÃO TOTAL (CALCULADO)
+                    </label>
+                    <div className="bg-[#0B0E14] border border-[#232A3B] text-slate-100 font-black text-sm h-10 px-3 flex items-center rounded-lg">
+                      {formatNumberBR(comissaoTotalCalculada)}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      VALOR DO IMÓVEL (VGV - OPCIONAL P/ METAS)
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="0"
+                      value={formVgv}
+                      onChange={(e) => setFormVgv(e.target.value ? Number(e.target.value) : '')}
+                      className="bg-[#0B0E14] text-slate-100 text-xs h-10 border-[#232A3B]"
+                    />
+                    <p className="text-[10px] text-slate-400 mt-1">Usado para cálculo de metas</p>
+                  </div>
+
+                  <div>
+                    <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      COMISSÃO TOTAL (VALOR FIXO) *
+                    </label>
+                    <Input
+                      type="number"
+                      step="0.01"
+                      placeholder="Ex: 15000"
+                      value={formValorFixoComissao}
+                      onChange={(e) =>
+                        setFormValorFixoComissao(
+                          e.target.value !== '' ? Number(e.target.value) : '',
+                        )
+                      }
+                      className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
+                    />
+                    {formErrors.comissaoFixa && (
+                      <p className="text-[10px] text-red-400 mt-0.5">{formErrors.comissaoFixa}</p>
+                    )}
+                  </div>
+                </div>
               )}
-            </div>
 
-            {/* Bloco: FORMA DE PAGAMENTO DA COMISSÃO */}
-            <div className="p-3.5 rounded-xl bg-[#0B0E14]/70 border border-[#232A3B] space-y-2">
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                FORMA DE PAGAMENTO DA COMISSÃO
-              </label>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {/* Opção Centralizada */}
-                <div
-                  onClick={() => setFormFormaPagamento('Centralizada')}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
-                    formFormaPagamento === 'Centralizada'
-                      ? 'bg-[#151C2A] border-[#E63946] ring-1 ring-[#E63946]/40'
-                      : 'bg-[#0E121B] border-[#232A3B] hover:border-slate-600'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="forma_pagamento"
-                    checked={formFormaPagamento === 'Centralizada'}
-                    onChange={() => setFormFormaPagamento('Centralizada')}
-                    className="mt-0.5 accent-[#E63946] cursor-pointer"
-                  />
+              {/* SEÇÃO DIVISÃO DA COMISSÃO EXATAMENTE CONFORME OS PRINTS */}
+              <div className="p-4 rounded-xl bg-[#0B0E14]/80 border border-[#232A3B] space-y-3">
+                <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                  DIVISÃO DA COMISSÃO
+                </label>
+
+                {/* 3 Inputs de %: % IMOBILIÁRIA, % CORRETOR, % CAPTADOR */}
+                <div className="grid grid-cols-3 gap-3">
                   <div>
-                    <span className="text-xs font-bold text-white block">Centralizada</span>
-                    <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
-                      Imobiliária recebe tudo (6% imposto sobre o total)
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      % IMOBILIÁRIA
+                    </label>
+                    <Input
+                      type="number"
+                      value={pctImobiliaria}
+                      onChange={(e) => setPctImobiliaria(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10 text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      % CORRETOR
+                    </label>
+                    <Input
+                      type="number"
+                      value={pctCorretor}
+                      onChange={(e) => setPctCorretor(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10 text-center"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                      % CAPTADOR
+                    </label>
+                    <Input
+                      type="number"
+                      value={pctCaptador}
+                      onChange={(e) => setPctCaptador(Number(e.target.value))}
+                      className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10 text-center"
+                    />
+                  </div>
+                </div>
+
+                {/* Linha de Resumo dos Valores em R$ */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#232A3B]/60 text-xs">
+                  {/* Imobiliária */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">
+                      Imobiliária:
+                    </span>
+                    <span className="font-bold text-emerald-400 block tabular-nums">
+                      {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
+                    </span>
+                  </div>
+
+                  {/* Corretor */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">Corretor:</span>
+                    <span className="font-bold text-white block tabular-nums">
+                      {formatCurrency(divisaoAoVivo.valorCorretor)}
+                    </span>
+                  </div>
+
+                  {/* Captador */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">Captador:</span>
+                    <span className="font-bold text-white block tabular-nums">
+                      {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
+                    </span>
+                  </div>
+
+                  {/* Imposto 6% */}
+                  <div>
+                    <span className="text-[10px] text-slate-400 block font-medium">
+                      Imposto 6%:
+                    </span>
+                    <span className="font-bold text-red-500 block tabular-nums">
+                      {formatCurrency(divisaoAoVivo.valorImposto)}
                     </span>
                   </div>
                 </div>
 
-                {/* Opção Separada */}
-                <div
-                  onClick={() => setFormFormaPagamento('Separada')}
-                  className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
-                    formFormaPagamento === 'Separada'
-                      ? 'bg-[#151C2A] border-[#E63946] ring-1 ring-[#E63946]/40'
-                      : 'bg-[#0E121B] border-[#232A3B] hover:border-slate-600'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="forma_pagamento"
-                    checked={formFormaPagamento === 'Separada'}
-                    onChange={() => setFormFormaPagamento('Separada')}
-                    className="mt-0.5 accent-[#E63946] cursor-pointer"
-                  />
-                  <div>
-                    <span className="text-xs font-bold text-white block">Separada</span>
-                    <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
-                      Cada um recebe direto (6% só sobre parte da imobiliária)
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Seletor: % sobre VGV vs Valor Fixo */}
-            <div className="flex items-center gap-2 pt-1">
-              <button
-                type="button"
-                onClick={() => setModoCalculo('%_vgv')}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
-                  modoCalculo === '%_vgv'
-                    ? 'bg-[#E63946] text-white shadow-md'
-                    : 'bg-[#0B0E14] border border-[#232A3B] text-slate-400 hover:text-white'
-                }`}
-              >
-                % sobre VGV
-              </button>
-              <button
-                type="button"
-                onClick={() => setModoCalculo('valor_fixo')}
-                className={`px-3.5 py-1.5 rounded-md text-xs font-bold transition-all ${
-                  modoCalculo === 'valor_fixo'
-                    ? 'bg-[#E63946] text-white shadow-md'
-                    : 'bg-[#0B0E14] border border-[#232A3B] text-slate-400 hover:text-white'
-                }`}
-              >
-                Valor Fixo
-              </button>
-            </div>
-
-            {/* Campos de VGV e % Negociação OU Valor Fixo */}
-            {modoCalculo === '%_vgv' ? (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    VALOR DO IMÓVEL (VGV) *
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="Ex: 250000"
-                    value={formVgv}
-                    onChange={(e) =>
-                      setFormVgv(e.target.value !== '' ? Number(e.target.value) : '')
-                    }
-                    className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Usado para cálculo de metas</p>
-                  {formErrors.vgv && (
-                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.vgv}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    % DA NEGOCIAÇÃO *
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    placeholder="6"
-                    value={formPctNegociacao}
-                    onChange={(e) =>
-                      setFormPctNegociacao(e.target.value !== '' ? Number(e.target.value) : '')
-                    }
-                    className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10"
-                  />
-                  {formErrors.pctNeg && (
-                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.pctNeg}</p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    COMISSÃO TOTAL (CALCULADO)
-                  </label>
-                  <div className="bg-[#0B0E14] border border-[#232A3B] text-slate-100 font-black text-sm h-10 px-3 flex items-center rounded-lg">
-                    {formatNumberBR(comissaoTotalCalculada)}
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    VALOR DO IMÓVEL (VGV - OPCIONAL P/ METAS)
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="0"
-                    value={formVgv}
-                    onChange={(e) => setFormVgv(e.target.value ? Number(e.target.value) : '')}
-                    className="bg-[#0B0E14] text-slate-100 text-xs h-10 border-[#232A3B]"
-                  />
-                  <p className="text-[10px] text-slate-400 mt-1">Usado para cálculo de metas</p>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    COMISSÃO TOTAL (VALOR FIXO) *
-                  </label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    placeholder="Ex: 15000"
-                    value={formValorFixoComissao}
-                    onChange={(e) =>
-                      setFormValorFixoComissao(e.target.value !== '' ? Number(e.target.value) : '')
-                    }
-                    className="bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 border-0 focus:ring-2 focus:ring-[#E63946]"
-                  />
-                  {formErrors.comissaoFixa && (
-                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.comissaoFixa}</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* SEÇÃO DIVISÃO DA COMISSÃO EXATAMENTE CONFORME OS PRINTS */}
-            <div className="p-4 rounded-xl bg-[#0B0E14]/80 border border-[#232A3B] space-y-3">
-              <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                DIVISÃO DA COMISSÃO
-              </label>
-
-              {/* 3 Inputs de %: % IMOBILIÁRIA, % CORRETOR, % CAPTADOR */}
-              <div className="grid grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    % IMOBILIÁRIA
-                  </label>
-                  <Input
-                    type="number"
-                    value={pctImobiliaria}
-                    onChange={(e) => setPctImobiliaria(Number(e.target.value))}
-                    className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10 text-center"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    % CORRETOR
-                  </label>
-                  <Input
-                    type="number"
-                    value={pctCorretor}
-                    onChange={(e) => setPctCorretor(Number(e.target.value))}
-                    className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10 text-center"
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    % CAPTADOR
-                  </label>
-                  <Input
-                    type="number"
-                    value={pctCaptador}
-                    onChange={(e) => setPctCaptador(Number(e.target.value))}
-                    className="bg-[#0B0E14] border-[#232A3B] text-slate-100 font-bold text-xs h-10 text-center"
-                  />
-                </div>
-              </div>
-
-              {/* Linha de Resumo dos Valores em R$ */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#232A3B]/60 text-xs">
-                {/* Imobiliária */}
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Imobiliária:</span>
-                  <span className="font-bold text-emerald-400 block tabular-nums">
+                {/* Destaque Líquido para Imobiliária */}
+                <div className="pt-2 border-t border-[#232A3B]/40 flex items-center justify-between">
+                  <span className="text-xs text-slate-400">Líquido para imobiliária:</span>
+                  <span className="text-sm font-black text-emerald-400 tabular-nums">
                     {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
                   </span>
                 </div>
-
-                {/* Corretor */}
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Corretor:</span>
-                  <span className="font-bold text-white block tabular-nums">
-                    {formatCurrency(divisaoAoVivo.valorCorretor)}
-                  </span>
-                </div>
-
-                {/* Captador */}
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Captador:</span>
-                  <span className="font-bold text-white block tabular-nums">
-                    {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
-                  </span>
-                </div>
-
-                {/* Imposto 6% */}
-                <div>
-                  <span className="text-[10px] text-slate-400 block font-medium">Imposto 6%:</span>
-                  <span className="font-bold text-red-500 block tabular-nums">
-                    {formatCurrency(divisaoAoVivo.valorImposto)}
-                  </span>
-                </div>
               </div>
 
-              {/* Destaque Líquido para Imobiliária */}
-              <div className="pt-2 border-t border-[#232A3B]/40 flex items-center justify-between">
-                <span className="text-xs text-slate-400">Líquido para imobiliária:</span>
-                <span className="text-sm font-black text-emerald-400 tabular-nums">
-                  {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
-                </span>
-              </div>
-            </div>
-
-            {/* SELEÇÃO DE CORRETOR E CAPTADOR COM BOTÕES + 2º */}
-            <div className="p-3.5 rounded-xl bg-[#0B0E14]/60 border border-[#232A3B] space-y-3">
-              {/* Corretor Principal */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
-                    CORRETOR RESPONSÁVEL *
-                  </label>
-                  {!showSecondCorretor && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSecondCorretor(true)}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#121722] border border-[#232A3B] text-slate-300 hover:text-white"
-                    >
-                      + 2º
-                    </button>
-                  )}
-                </div>
-                <select
-                  value={formCorretorPrincipal}
-                  onChange={(e) => setFormCorretorPrincipal(e.target.value)}
-                  className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
-                >
-                  <option value="">Selecione o corretor...</option>
-                  {corretores
-                    .filter((c) => c.ativo)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
-                      </option>
-                    ))}
-                </select>
-                {formErrors.corretor && (
-                  <p className="text-[10px] text-red-400 mt-0.5">{formErrors.corretor}</p>
-                )}
-              </div>
-
-              {/* 2º Corretor (Opcional) */}
-              {showSecondCorretor && (
-                <div className="pt-2 border-t border-[#232A3B]/50 flex items-center gap-2">
+              {/* SELEÇÃO DE CORRETOR E CAPTADOR COM BOTÕES + 2º */}
+              <div className="p-3.5 rounded-xl bg-[#0B0E14]/60 border border-[#232A3B] space-y-3">
+                {/* Corretor Principal */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                      CORRETOR RESPONSÁVEL *
+                    </label>
+                    {!showSecondCorretor && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSecondCorretor(true)}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#121722] border border-[#232A3B] text-slate-300 hover:text-white"
+                      >
+                        + 2º
+                      </button>
+                    )}
+                  </div>
                   <select
-                    value={formCorretorSecundario}
-                    onChange={(e) => setFormCorretorSecundario(e.target.value)}
-                    className="flex-1 bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
+                    value={formCorretorPrincipal}
+                    onChange={(e) => setFormCorretorPrincipal(e.target.value)}
+                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
                   >
-                    <option value="">Selecione 2º corretor...</option>
+                    <option value="">Selecione o corretor...</option>
                     {corretores
-                      .filter((c) => c.ativo && c.id !== formCorretorPrincipal)
+                      .filter((c) => c.ativo)
                       .map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
                         </option>
                       ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSecondCorretor(false)
-                      setFormCorretorSecundario('')
-                    }}
-                    className="text-slate-400 hover:text-red-400 p-1.5"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-              )}
-
-              {/* Captador(es) */}
-              <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
-                    CAPTADOR
-                  </label>
-                  {!showSecondCaptador && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSecondCaptador(true)}
-                      className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#121722] border border-[#232A3B] text-slate-300 hover:text-white"
-                    >
-                      + 2º
-                    </button>
+                  {formErrors.corretor && (
+                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.corretor}</p>
                   )}
                 </div>
-                <select
-                  value={formCaptadores[0] || ''}
-                  onChange={(e) => {
-                    const id = e.target.value
-                    if (id) {
-                      setFormCaptadores([id, ...formCaptadores.slice(1)])
-                    } else {
-                      setFormCaptadores(formCaptadores.slice(1))
-                    }
-                  }}
-                  className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-amber-400"
-                >
-                  <option value="">Selecione o captador...</option>
-                  {corretores
-                    .filter((c) => c.ativo)
-                    .map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
-                      </option>
-                    ))}
-                </select>
-              </div>
 
-              {/* 2º Captador (Opcional) */}
-              {showSecondCaptador && (
-                <div className="pt-2 border-t border-[#232A3B]/50 flex items-center gap-2">
+                {/* 2º Corretor (Opcional) */}
+                {showSecondCorretor && (
+                  <div className="pt-2 border-t border-[#232A3B]/50 flex items-center gap-2">
+                    <select
+                      value={formCorretorSecundario}
+                      onChange={(e) => setFormCorretorSecundario(e.target.value)}
+                      className="flex-1 bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
+                    >
+                      <option value="">Selecione 2º corretor...</option>
+                      {corretores
+                        .filter((c) => c.ativo && c.id !== formCorretorPrincipal)
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSecondCorretor(false)
+                        setFormCorretorSecundario('')
+                      }}
+                      className="text-slate-400 hover:text-red-400 p-1.5"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {/* Captador(es) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                      CAPTADOR
+                    </label>
+                    {!showSecondCaptador && (
+                      <button
+                        type="button"
+                        onClick={() => setShowSecondCaptador(true)}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded bg-[#121722] border border-[#232A3B] text-slate-300 hover:text-white"
+                      >
+                        + 2º
+                      </button>
+                    )}
+                  </div>
                   <select
-                    value={formCaptadores[1] || ''}
+                    value={formCaptadores[0] || ''}
                     onChange={(e) => {
                       const id = e.target.value
-                      const first = formCaptadores[0] || ''
                       if (id) {
-                        setFormCaptadores(first ? [first, id] : [id])
+                        setFormCaptadores([id, ...formCaptadores.slice(1)])
                       } else {
-                        setFormCaptadores(first ? [first] : [])
+                        setFormCaptadores(formCaptadores.slice(1))
                       }
                     }}
-                    className="flex-1 bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-amber-400"
+                    className="w-full bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-amber-400"
                   >
-                    <option value="">Selecione 2º captador...</option>
+                    <option value="">Selecione o captador...</option>
                     {corretores
-                      .filter((c) => c.ativo && c.id !== formCaptadores[0])
+                      .filter((c) => c.ativo)
                       .map((c) => (
                         <option key={c.id} value={c.id}>
                           {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
                         </option>
                       ))}
                   </select>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSecondCaptador(false)
-                      if (formCaptadores.length > 1) {
-                        setFormCaptadores([formCaptadores[0]])
-                      }
-                    }}
-                    className="text-slate-400 hover:text-red-400 p-1.5"
+                </div>
+
+                {/* 2º Captador (Opcional) */}
+                {showSecondCaptador && (
+                  <div className="pt-2 border-t border-[#232A3B]/50 flex items-center gap-2">
+                    <select
+                      value={formCaptadores[1] || ''}
+                      onChange={(e) => {
+                        const id = e.target.value
+                        const first = formCaptadores[0] || ''
+                        if (id) {
+                          setFormCaptadores(first ? [first, id] : [id])
+                        } else {
+                          setFormCaptadores(first ? [first] : [])
+                        }
+                      }}
+                      className="flex-1 bg-[#121722] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-amber-400"
+                    >
+                      <option value="">Selecione 2º captador...</option>
+                      {corretores
+                        .filter((c) => c.ativo && c.id !== formCaptadores[0])
+                        .map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nome} {c.creci ? `(CRECI ${c.creci})` : ''}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSecondCaptador(false)
+                        if (formCaptadores.length > 1) {
+                          setFormCaptadores([formCaptadores[0]])
+                        }
+                      }}
+                      className="text-slate-400 hover:text-red-400 p-1.5"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Situação do Recebimento & Status */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                    SITUAÇÃO DO RECEBIMENTO
+                  </label>
+                  <select
+                    value={formSituacaoRecebimento}
+                    onChange={(e) =>
+                      setFormSituacaoRecebimento(e.target.value as SituacaoRecebimento)
+                    }
+                    className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
+                    <option value="Recebido">Recebido Total</option>
+                    <option value="Parcial">Parcial (Recebeu parte)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                    STATUS
+                  </label>
+                  <select
+                    value={formStatus}
+                    onChange={(e) => setFormStatus(e.target.value as VendaStatus)}
+                    className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
+                  >
+                    <option value="realizada">Realizada</option>
+                    <option value="pendente">Pendente</option>
+                    <option value="cancelada">Cancelada</option>
+                  </select>
+                </div>
+              </div>
+
+              {formSituacaoRecebimento === 'Parcial' && (
+                <div>
+                  <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
+                    VALOR RECEBIDO NESTA ETAPA (R$) *
+                  </label>
+                  <Input
+                    type="number"
+                    placeholder="Ex: 10000"
+                    value={formValorRecebido}
+                    onChange={(e) =>
+                      setFormValorRecebido(e.target.value ? Number(e.target.value) : '')
+                    }
+                    className="bg-[#0B0E14] border-amber-500/50 text-xs h-9 text-white font-bold"
+                  />
+                  {formErrors.valorRecebido && (
+                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.valorRecebido}</p>
+                  )}
                 </div>
               )}
             </div>
 
-            {/* Situação do Recebimento & Status */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                  SITUAÇÃO DO RECEBIMENTO
-                </label>
-                <select
-                  value={formSituacaoRecebimento}
-                  onChange={(e) =>
-                    setFormSituacaoRecebimento(e.target.value as SituacaoRecebimento)
-                  }
-                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
-                >
-                  <option value="Recebido">Recebido Total</option>
-                  <option value="Parcial">Parcial (Recebeu parte)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                  STATUS
-                </label>
-                <select
-                  value={formStatus}
-                  onChange={(e) => setFormStatus(e.target.value as VendaStatus)}
-                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
-                >
-                  <option value="realizada">Realizada</option>
-                  <option value="pendente">Pendente</option>
-                  <option value="cancelada">Cancelada</option>
-                </select>
-              </div>
-            </div>
-
-            {formSituacaoRecebimento === 'Parcial' && (
-              <div>
-                <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
-                  VALOR RECEBIDO NESTA ETAPA (R$) *
-                </label>
-                <Input
-                  type="number"
-                  placeholder="Ex: 10000"
-                  value={formValorRecebido}
-                  onChange={(e) =>
-                    setFormValorRecebido(e.target.value ? Number(e.target.value) : '')
-                  }
-                  className="bg-[#0B0E14] border-amber-500/50 text-xs h-9 text-white font-bold"
-                />
-                {formErrors.valorRecebido && (
-                  <p className="text-[10px] text-red-400 mt-0.5">{formErrors.valorRecebido}</p>
-                )}
-              </div>
-            )}
-
-            <DialogFooter className="pt-3 border-t border-[#232A3B]/60">
+            {/* Rodapé Fixo */}
+            <DialogFooter className="p-3.5 sm:p-4 px-4 sm:px-6 border-t border-[#232A3B]/80 bg-[#0E121B] flex flex-row items-center justify-end gap-2 shrink-0">
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => setIsModalOpen(false)}
-                className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234]"
+                className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234] text-xs h-9"
               >
                 Cancelar
               </Button>
               <Button
                 type="submit"
                 disabled={saving}
-                className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold"
+                className="bg-[#E63946] hover:bg-[#D62839] text-white font-bold text-xs h-9 shadow-md shadow-red-900/20"
               >
                 {saving ? (
                   <>
