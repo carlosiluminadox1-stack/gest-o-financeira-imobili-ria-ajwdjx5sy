@@ -27,12 +27,3 @@ export function getErrorMessage(error: unknown): string {
   const msgs = Object.values(extractFieldErrors(error))
   return msgs.length > 0 ? msgs.join(' ') : error.message || 'An unexpected error occurred.'
 }
-
-export function formatPocketBaseError(
-  error: unknown,
-  fallbackMessage = 'Ocorreu um erro ao processar a requisição.',
-): string {
-  if (!error) return fallbackMessage
-  const err = getErrorMessage(error)
-  return err && err !== 'An unexpected error occurred.' ? err : fallbackMessage
-}

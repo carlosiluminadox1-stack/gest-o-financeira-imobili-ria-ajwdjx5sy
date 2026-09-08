@@ -26,7 +26,7 @@ import {
   TransacaoService,
 } from '@/services/imobService'
 import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
-import { formatPocketBaseError } from '@/lib/pocketbase/errors'
+import { getErrorMessage } from '@/lib/pocketbase/errors'
 import {
   Building2,
   Calendar,
@@ -197,20 +197,67 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
   const currentPart = partes[activePartIndex] || partes[0]
 
   const totalTransacao = transacao ? Number(transacao.valor) || 0 : 0
+
+  // Helper para obter o valor efetivamente recebido de uma parte
+  const getValorRecebidoParte = (p: VendaPartForm): number => {
+    if (p.situacaoRecebimento === 'Parcial') {
+      return typeof p.valorRecebido === 'number' && !isNaN(p.valorRecebido) ? p.valorRecebido : 0
+    }
+    return Number(p.valorComissao) || 0
+  }
+
+  // Soma dos valores efetivamente recebidos de todas as partes (deve bater com a transação do extrato)
+  const somaRecebidosPartes = useMemo(() => {
+    return partes.reduce((acc, p) => acc + getValorRecebidoParte(p), 0)
+  }, [partes])
+
+  // Soma das comissões totais informadas (para exibição informativa)
   const somaComissoesPartes = useMemo(() => {
     return partes.reduce((acc, p) => acc + (Number(p.valorComissao) || 0), 0)
   }, [partes])
 
-  const diferencaDivisao = Math.round((totalTransacao - somaComissoesPartes) * 100) / 100
+  // Diferença entre o que entrou no extrato e o que foi marcado como recebido
+  const diferencaDivisao = Math.round((totalTransacao - somaRecebidosPartes) * 100) / 100
   const valorBate = Math.abs(diferencaDivisao) < 0.01
 
   // Atualizador de campo da parte atual
   const updateCurrentPart = (updates: Partial<VendaPartForm>) => {
     setPartes((prev) => {
       const next = [...prev]
-      if (next[activePartIndex]) {
-        next[activePartIndex] = { ...next[activePartIndex], ...updates }
+      const current = next[activePartIndex]
+      if (!current) return prev
+
+      const merged = { ...current, ...updates }
+
+      // Se a comissão foi alterada ou situação não foi explicitada:
+      // Caso haja apenas 1 parte:
+      // - Se valorComissao > totalTransacao e o usuário não forçou situacaoRecebimento='Recebido' explicitamente nos updates,
+      //   ajustar situacaoRecebimento para 'Parcial' e valorRecebido para totalTransacao se ainda não definido ou se era o valorComissao anterior.
+      if (prev.length === 1 && updates.valorComissao !== undefined) {
+        const novaComissao = Number(updates.valorComissao) || 0
+        if (novaComissao > totalTransacao) {
+          if (updates.situacaoRecebimento === undefined) {
+            merged.situacaoRecebimento = 'Parcial'
+            if (
+              merged.valorRecebido === '' ||
+              merged.valorRecebido === current.valorComissao ||
+              Number(merged.valorRecebido) > novaComissao
+            ) {
+              merged.valorRecebido = totalTransacao
+            }
+          }
+        } else if (novaComissao === totalTransacao) {
+          if (
+            updates.situacaoRecebimento === undefined &&
+            current.situacaoRecebimento === 'Parcial'
+          ) {
+            merged.situacaoRecebimento = 'Recebido'
+            merged.valorRecebido = totalTransacao
+          }
+        }
       }
+
+      next[activePartIndex] = merged
       return next
     })
     // Limpar erros da parte ao editar
@@ -261,7 +308,10 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
   const handleAdicionarParte = () => {
     if (!currentPart) return
     const sobra = Math.max(0, diferencaDivisao)
-    const valorSugerido = sobra > 0 ? sobra : Math.max(0, currentPart.valorComissao / 2)
+    const valorSugerido =
+      sobra > 0
+        ? sobra
+        : Math.max(0, (Number(currentPart.valorRecebido) || currentPart.valorComissao) / 2)
 
     const novaParte: VendaPartForm = {
       id: `part_${Date.now()}_${partes.length + 1}`,
@@ -275,7 +325,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       vgv: '',
       pctNegociacao: currentPart.pctNegociacao,
       valorComissao: valorSugerido,
-      situacaoRecebimento: currentPart.situacaoRecebimento,
+      situacaoRecebimento: 'Recebido',
       valorRecebido: valorSugerido,
       status: 'realizada',
       corretorPrincipal: '',
@@ -306,7 +356,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
     let firstPartWithError = -1
 
     if (!valorBate) {
-      errs.divisao = `A soma das partes (${formatCurrency(somaComissoesPartes)}) deve ser igual ao valor da transação (${formatCurrency(totalTransacao)}). Diferença: ${formatCurrency(diferencaDivisao)}`
+      errs.divisao = `A soma dos valores recebidos (${formatCurrency(somaRecebidosPartes)}) deve ser igual ao valor da transação do extrato (${formatCurrency(totalTransacao)}). Diferença: ${formatCurrency(diferencaDivisao)}`
     }
 
     partes.forEach((p, idx) => {
@@ -397,8 +447,18 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
         const finalVgv = p.modoCalculo === '%_vgv' ? Number(p.vgv) : p.vgv ? Number(p.vgv) : 0
         const finalPct = p.modoCalculo === '%_vgv' ? Number(p.pctNegociacao) : 0
         const finalComissao = Number(p.valorComissao)
+
+        // Se o valor da comissão for maior que o valor recebido, ou se foi selecionado 'Parcial', definir como Parcial
+        const situacaoFinal: SituacaoRecebimento =
+          p.situacaoRecebimento === 'Parcial' ||
+          (p.valorRecebido !== '' && Number(p.valorRecebido) < finalComissao)
+            ? 'Parcial'
+            : 'Recebido'
+
         const finalRecebido =
-          p.situacaoRecebimento === 'Recebido' ? finalComissao : Number(p.valorRecebido)
+          situacaoFinal === 'Parcial'
+            ? Number(p.valorRecebido !== '' ? p.valorRecebido : totalTransacao)
+            : finalComissao
 
         const finalCaptadores = p.captadores.filter((c) => Boolean(c && c.trim()))
 
@@ -418,7 +478,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
           pct_corretor: p.pctCorretor,
           pct_captador: p.pctCaptador,
           forma_pagamento: p.formaPagamento,
-          situacao_recebimento: p.situacaoRecebimento,
+          situacao_recebimento: situacaoFinal,
           valor_recebido: finalRecebido,
           data_venda: dataCompetenciaIso,
           status: p.status,
@@ -442,10 +502,9 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       onSuccess()
     } catch (err: unknown) {
       console.error('Erro na conversão em venda:', err)
-      const userMessage = formatPocketBaseError(
-        err,
-        'Erro ao converter transação em venda. Verifique os dados informados.',
-      )
+      const userMessage =
+        getErrorMessage(err) ||
+        'Erro ao converter transação em venda. Verifique os dados informados.'
 
       // Se criou alguma venda parcial antes de falhar, alertar o usuário
       if (criadasIds.length > 0) {
@@ -559,6 +618,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                     {partes.map((p, idx) => {
                       const isActive = idx === activePartIndex
                       const partHasError = Object.keys(errors).some((k) => k.startsWith(`p${idx}_`))
+                      const valRec = getValorRecebidoParte(p)
                       return (
                         <div
                           key={p.id}
@@ -576,7 +636,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                           )}
                           <span>Venda {idx + 1}</span>
                           <span className="opacity-80 tabular-nums">
-                            ({formatCurrency(Number(p.valorComissao) || 0)})
+                            (Rec: {formatCurrency(valRec)})
                           </span>
                           {partes.length > 1 && (
                             <button
@@ -597,30 +657,36 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                   </div>
                 )}
 
-                {/* Indicador de Balanço do Valor Total */}
+                {/* Indicador de Balanço do Valor Recebido vs Transação do Extrato */}
                 <div
-                  className={`flex items-center justify-between text-xs px-2.5 py-1.5 rounded-lg border ${
+                  className={`flex flex-col sm:flex-row sm:items-center justify-between text-xs px-2.5 py-1.5 rounded-lg border gap-1 sm:gap-2 ${
                     valorBate
                       ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
                       : 'bg-red-500/10 border-red-500/30 text-red-300'
                   }`}
                 >
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1.5 min-w-0">
                     {valorBate ? (
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                     ) : (
                       <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
                     )}
-                    <span>
-                      Soma das vendas: <strong>{formatCurrency(somaComissoesPartes)}</strong> de{' '}
+                    <span className="truncate">
+                      {partes.length > 1 ? 'Soma dos recebimentos: ' : 'Valor recebido: '}
+                      <strong>{formatCurrency(somaRecebidosPartes)}</strong> de{' '}
                       <strong>{formatCurrency(totalTransacao)}</strong>
+                      {somaComissoesPartes > totalTransacao && (
+                        <span className="text-slate-400 font-normal ml-1">
+                          (Comissão total: {formatCurrency(somaComissoesPartes)})
+                        </span>
+                      )}
                     </span>
                   </div>
                   {!valorBate && (
-                    <span className="font-bold tabular-nums">
+                    <span className="font-bold tabular-nums shrink-0">
                       {diferencaDivisao > 0
-                        ? `Falta: ${formatCurrency(diferencaDivisao)}`
-                        : `Passou: ${formatCurrency(Math.abs(diferencaDivisao))}`}
+                        ? `Falta receber: ${formatCurrency(diferencaDivisao)}`
+                        : `Passou do extrato: ${formatCurrency(Math.abs(diferencaDivisao))}`}
                     </span>
                   )}
                 </div>
@@ -1236,9 +1302,16 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                   {/* Situação do Recebimento & Status */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                     <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                        SITUAÇÃO DO RECEBIMENTO
-                      </label>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="text-[11px] font-bold uppercase tracking-wider text-slate-300">
+                          SITUAÇÃO DO RECEBIMENTO
+                        </label>
+                        {currentPart.situacaoRecebimento === 'Parcial' && (
+                          <span className="text-[10px] font-bold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded border border-amber-400/20">
+                            Parcial
+                          </span>
+                        )}
+                      </div>
                       <select
                         value={currentPart.situacaoRecebimento}
                         onChange={(e) => {
@@ -1248,13 +1321,16 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                             valorRecebido:
                               sit === 'Recebido'
                                 ? currentPart.valorComissao
-                                : currentPart.valorRecebido || currentPart.valorComissao,
+                                : currentPart.valorRecebido ||
+                                  (partes.length === 1
+                                    ? totalTransacao
+                                    : currentPart.valorComissao),
                           })
                         }}
                         className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
                       >
                         <option value="Recebido">Recebido Total</option>
-                        <option value="Parcial">Parcial (Recebeu parte)</option>
+                        <option value="Parcial">Parcial (Recebeu parte do extrato)</option>
                       </select>
                     </div>
 
@@ -1277,17 +1353,30 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                   </div>
 
                   {currentPart.situacaoRecebimento === 'Parcial' && (
-                    <div>
-                      <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
-                        VALOR RECEBIDO NESTA ETAPA (R$) *
-                      </label>
+                    <div className="p-3 rounded-xl bg-amber-500/5 border border-amber-500/20 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400">
+                          VALOR RECEBIDO NESTA ETAPA (R$) *
+                        </label>
+                        {typeof currentPart.valorRecebido === 'number' &&
+                          currentPart.valorComissao > currentPart.valorRecebido && (
+                            <span className="text-[10px] text-slate-400">
+                              Saldo a receber:{' '}
+                              <strong className="text-amber-300">
+                                {formatCurrency(
+                                  currentPart.valorComissao - currentPart.valorRecebido,
+                                )}
+                              </strong>
+                            </span>
+                          )}
+                      </div>
                       <Input
                         type="number"
                         placeholder="Ex: 10000"
                         value={currentPart.valorRecebido}
                         onChange={(e) =>
                           updateCurrentPart({
-                            valorRecebido: e.target.value ? Number(e.target.value) : '',
+                            valorRecebido: e.target.value !== '' ? Number(e.target.value) : '',
                           })
                         }
                         className={`bg-[#0B0E14] text-xs h-9 text-white font-bold ${
@@ -1301,6 +1390,19 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                           {errors[`p${activePartIndex}_valorRecebido`]}
                         </p>
                       )}
+                      <p className="text-[10px] text-slate-400 leading-tight">
+                        Os repasses, comissões e impostos desta etapa serão gerados
+                        proporcionalmente ao valor recebido (
+                        {formatCurrency(Number(currentPart.valorRecebido) || 0)}). O saldo restante
+                        de{' '}
+                        {formatCurrency(
+                          Math.max(
+                            0,
+                            currentPart.valorComissao - (Number(currentPart.valorRecebido) || 0),
+                          ),
+                        )}{' '}
+                        poderá ter suas saídas complementares geradas ao receber depois.
+                      </p>
                     </div>
                   )}
                 </div>
