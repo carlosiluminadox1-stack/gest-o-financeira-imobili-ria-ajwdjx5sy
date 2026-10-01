@@ -25,7 +25,7 @@ import {
   ConfigService,
   TransacaoService,
 } from '@/services/imobService'
-import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
+import { calcularDivisaoComissao, round2 } from '@/lib/comissaoCalculator'
 import { getErrorMessage } from '@/lib/pocketbase/errors'
 import {
   Building2,

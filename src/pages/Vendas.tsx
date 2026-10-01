@@ -26,7 +26,7 @@ import {
   FormaPagamento,
   TipoVenda,
 } from '@/types'
-import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
+import { calcularDivisaoComissao, round2 } from '@/lib/comissaoCalculator'
 import { useAuth } from '@/context/AuthContext'
 import { usePeriodo } from '@/context/PeriodoContext'
 import { Button } from '@/components/ui/button'

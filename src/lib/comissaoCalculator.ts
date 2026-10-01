@@ -1,5 +1,9 @@
 import { FormaPagamento } from '@/types'
 
+export function round2(val: number): number {
+  return Math.round((Number(val) || 0) * 100) / 100
+}
+
 export interface DivisaoComissaoInput {
   valorBase: number // Valor comissão total ou valor efetivamente recebido (Parcial)
   formaPagamento?: FormaPagamento
