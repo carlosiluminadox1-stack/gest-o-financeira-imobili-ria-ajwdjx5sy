@@ -986,7 +986,19 @@ export default function Vendas() {
                       {compStr}
                     </td>
                     <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">{dtRecStr}</td>
-                    <td className="py-3.5 px-4 text-center">{getStatusBadge(v.status)}</td>
+                    <td className="py-3.5 px-4 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        {getStatusBadge(v.status)}
+                        {situacao === 'Parcial' && (
+                          <span
+                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30"
+                            title={`Recebido: ${formatCurrency(v.valor_recebido || 0)} de ${formatCurrency(v.valor_comissao)}`}
+                          >
+                            Parcial ({formatCurrency(v.valor_recebido || 0)})
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex items-center justify-end gap-1">
                         <Button
@@ -1158,7 +1170,8 @@ export default function Vendas() {
                     <div>
                       <span className="text-xs font-bold text-white block">Centralizada</span>
                       <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
-                        Imobiliária recebe tudo (6% imposto sobre o total)
+                        Imobiliária recebe tudo (imposto 6% só sobre a parte imob; repasses
+                        integrais)
                       </span>
                     </div>
                   </div>
@@ -1351,48 +1364,111 @@ export default function Vendas() {
                   </div>
                 </div>
 
-                {/* Linha de Resumo dos Valores em R$ */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#232A3B]/60 text-xs">
-                  {/* Imobiliária */}
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-medium">
-                      Imobiliária:
+                {/* Linha de Resumo dos Valores em R$ (Calculados sobre a comissão total) */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-[11px] text-slate-400">
+                    <span>
+                      Divisão sobre a comissão TOTAL ({formatCurrency(divisaoAoVivo.valorBase)}):
                     </span>
-                    <span className="font-bold text-emerald-400 block tabular-nums">
-                      {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
-                    </span>
+                    <span className="text-[10px] text-slate-500">Imposto 6% só s/ Imob</span>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-[#232A3B]/60 text-xs">
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">
+                        Imobiliária Bruta:
+                      </span>
+                      <span className="font-bold text-emerald-300 block tabular-nums">
+                        {formatCurrency(divisaoAoVivo.valorImobiliariaBruto)}
+                      </span>
+                      <span className="text-[9px] text-slate-500 block">
+                        Líq: {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
+                      </span>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">
+                        Corretor ({pctCorretor}%):
+                      </span>
+                      <span className="font-bold text-white block tabular-nums">
+                        {formatCurrency(divisaoAoVivo.valorCorretor)}
+                      </span>
+                      <span className="text-[9px] text-emerald-400/80 block">Integral</span>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">
+                        Captador ({pctCaptador}%):
+                      </span>
+                      <span className="font-bold text-white block tabular-nums">
+                        {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
+                      </span>
+                      <span className="text-[9px] text-emerald-400/80 block">Integral</span>
+                    </div>
+
+                    <div>
+                      <span className="text-[10px] text-slate-400 block font-medium">
+                        Imposto (6% Imob):
+                      </span>
+                      <span className="font-bold text-red-400 block tabular-nums">
+                        {formatCurrency(divisaoAoVivo.valorImposto)}
+                      </span>
+                      <span className="text-[9px] text-slate-500 block">
+                        6% de {formatCurrency(divisaoAoVivo.valorImobiliariaBruto)}
+                      </span>
+                    </div>
                   </div>
 
-                  {/* Corretor */}
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-medium">Corretor:</span>
-                    <span className="font-bold text-white block tabular-nums">
-                      {formatCurrency(divisaoAoVivo.valorCorretor)}
-                    </span>
-                  </div>
-
-                  {/* Captador */}
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-medium">Captador:</span>
-                    <span className="font-bold text-white block tabular-nums">
-                      {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
-                    </span>
-                  </div>
-
-                  {/* Imposto 6% */}
-                  <div>
-                    <span className="text-[10px] text-slate-400 block font-medium">
-                      Imposto 6%:
-                    </span>
-                    <span className="font-bold text-red-500 block tabular-nums">
-                      {formatCurrency(divisaoAoVivo.valorImposto)}
-                    </span>
-                  </div>
+                  {/* Se situação Parcial, exibir repasses proporcionais à quantia recebida */}
+                  {formSituacaoRecebimento === 'Parcial' &&
+                    (() => {
+                      const totalC = divisaoAoVivo.valorBase
+                      const recC = Number(formValorRecebido) || 0
+                      const fracao = totalC > 0 ? recC / totalC : 0
+                      return (
+                        <div className="mt-2 pt-2 border-t border-amber-500/20 bg-amber-500/5 p-2 rounded-lg space-y-1.5">
+                          <div className="flex items-center justify-between text-[10px] text-amber-300 font-bold uppercase">
+                            <span>
+                              Repasses Desta Etapa ({formatCurrency(recC)} ·{' '}
+                              {(fracao * 100).toFixed(1)}%):
+                            </span>
+                            <span>Proporcional ao recebido</span>
+                          </div>
+                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                            <div>
+                              <span className="text-[10px] text-slate-400 block">Imob Líq:</span>
+                              <span className="font-bold text-emerald-400 tabular-nums">
+                                {formatCurrency(
+                                  round2(divisaoAoVivo.valorImobiliariaLiquido * fracao),
+                                )}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 block">Corretor:</span>
+                              <span className="font-bold text-white tabular-nums">
+                                {formatCurrency(round2(divisaoAoVivo.valorCorretor * fracao))}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 block">Captador:</span>
+                              <span className="font-bold text-white tabular-nums">
+                                {formatCurrency(round2(divisaoAoVivo.valorCaptadorTotal * fracao))}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-400 block">Imposto:</span>
+                              <span className="font-bold text-red-400 tabular-nums">
+                                {formatCurrency(round2(divisaoAoVivo.valorImposto * fracao))}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })()}
                 </div>
 
                 {/* Destaque Líquido para Imobiliária */}
                 <div className="pt-2 border-t border-[#232A3B]/40 flex items-center justify-between">
-                  <span className="text-xs text-slate-400">Líquido para imobiliária:</span>
+                  <span className="text-xs text-slate-400">Líquido total imobiliária:</span>
                   <span className="text-sm font-black text-emerald-400 tabular-nums">
                     {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
                   </span>

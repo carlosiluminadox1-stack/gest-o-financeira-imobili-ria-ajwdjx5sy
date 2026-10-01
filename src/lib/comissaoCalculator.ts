@@ -101,81 +101,46 @@ export function calcularDivisaoComissao(input: DivisaoComissaoInput): DivisaoCom
     }
   }
 
-  if (formaPagamento === 'Centralizada') {
-    // 1. Calcular o imposto de 6% sobre o valor TOTAL da comissão
-    const valorImposto = (valorBase * aliquotaImposto) / 100
+  // Regra de divisão autorizada pelo usuário para Centralizada e Separada:
+  // 1. Corretor: % INTEGRAL sobre a comissão total (sem desconto de imposto).
+  // 2. Captador(es): % INTEGRAL sobre a comissão total (sem desconto de imposto, rateado entre captadores).
+  // 3. Imobiliária bruta: % sobre a comissão total (ex: 50%).
+  // 4. Imposto (6%): incide SOMENTE sobre a parte da imobiliária (6% da parte bruta da imobiliária).
+  // 5. Imobiliária líquida: Imobiliária bruta - Imposto.
+  //
+  // No modo Centralizada: a imobiliária recebe o valor da comissão e repassa integralmente corretor/captador e paga o imposto.
+  // No modo Separada: cada parte recebe direto na conta; imposto 6% continua apenas sobre a parte da imobiliária.
+  const valorImobiliariaBruto = (valorBase * pctImobConfig) / 100
+  const valorCorretor = (valorBase * pctCorrConfig) / 100
+  const valorCaptadorTotal = (valorBase * pctCaptTotalConfig) / 100
+  const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
 
-    // 2. Subtrair esse imposto do total para obter o valor líquido total (base de cálculo das partes)
-    const baseLiquidaTotal = valorBase - valorImposto
+  // Imposto incide SOMENTE sobre a parte da imobiliária
+  const baseImposto = valorImobiliariaBruto
+  const valorImposto = (baseImposto * aliquotaImposto) / 100
+  const valorImobiliariaLiquido = valorImobiliariaBruto - valorImposto
 
-    // 3. Dividir esse valor líquido total entre as partes
-    const valorImobiliariaLiquido = (baseLiquidaTotal * pctImobConfig) / 100
-    const valorImobiliariaBruto = valorImobiliariaLiquido // No modelo centralizado, o valor da imobiliária é sua cota sobre o líquido
-    const valorCorretor = (baseLiquidaTotal * pctCorrConfig) / 100
-    const valorCaptadorTotal = (baseLiquidaTotal * pctCaptTotalConfig) / 100
-    const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
+  const pctImobiliariaLiquidoReal = valorBase > 0 ? (valorImobiliariaLiquido / valorBase) * 100 : 0
 
-    const pctImobiliariaLiquidoReal =
-      valorBase > 0 ? (valorImobiliariaLiquido / valorBase) * 100 : 0
-
-    return {
-      formaPagamento: 'Centralizada',
-      valorBase,
-      aliquotaImposto,
-      baseCalculoPartes: baseLiquidaTotal,
-      valorImposto,
-      baseImposto: valorBase,
-      descricaoImposto: `6% sobre o valor total (R$ ${valorBase.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
-      valorImobiliariaLiquido,
-      valorImobiliariaBruto,
-      valorCorretor,
-      valorCaptadorTotal,
-      valorPorCaptador,
-      numCaptadores,
-      temCaptador,
-      pctImobiliaria: pctImobConfig,
-      pctCorretor: pctCorrConfig,
-      pctCaptadorTotal: pctCaptTotalConfig,
-      pctPorCaptador,
-      pctImobiliariaLiquidoReal,
-    }
-  } else {
-    // SEPARADA:
-    // 1. Comissão total é dividida entre as partes primeiro sobre a base bruta
-    const valorImobiliariaBruto = (valorBase * pctImobConfig) / 100
-    const valorCorretor = (valorBase * pctCorrConfig) / 100
-    const valorCaptadorTotal = (valorBase * pctCaptTotalConfig) / 100
-    const valorPorCaptador = numCaptadores > 0 ? valorCaptadorTotal / numCaptadores : 0
-
-    // 2. Imposto de 6% incide APENAS sobre a parte da imobiliária
-    const valorImposto = (valorImobiliariaBruto * aliquotaImposto) / 100
-
-    // 3. Líquido da imobiliária = Parte Bruta da Imobiliária - Imposto de 6% sobre ela
-    const valorImobiliariaLiquido = valorImobiliariaBruto - valorImposto
-
-    const pctImobiliariaLiquidoReal =
-      valorBase > 0 ? (valorImobiliariaLiquido / valorBase) * 100 : 0
-
-    return {
-      formaPagamento: 'Separada',
-      valorBase,
-      aliquotaImposto,
-      baseCalculoPartes: valorBase,
-      valorImposto,
-      baseImposto: valorImobiliariaBruto,
-      descricaoImposto: `6% sobre a parte Imob (R$ ${valorImobiliariaBruto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
-      valorImobiliariaLiquido,
-      valorImobiliariaBruto,
-      valorCorretor,
-      valorCaptadorTotal,
-      valorPorCaptador,
-      numCaptadores,
-      temCaptador,
-      pctImobiliaria: pctImobConfig,
-      pctCorretor: pctCorrConfig,
-      pctCaptadorTotal: pctCaptTotalConfig,
-      pctPorCaptador,
-      pctImobiliariaLiquidoReal,
-    }
+  return {
+    formaPagamento,
+    valorBase,
+    aliquotaImposto,
+    baseCalculoPartes: valorBase,
+    valorImposto,
+    baseImposto,
+    descricaoImposto: `6% sobre a parte Imob (R$ ${baseImposto.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})`,
+    valorImobiliariaLiquido,
+    valorImobiliariaBruto,
+    valorCorretor,
+    valorCaptadorTotal,
+    valorPorCaptador,
+    numCaptadores,
+    temCaptador,
+    pctImobiliaria: pctImobConfig,
+    pctCorretor: pctCorrConfig,
+    pctCaptadorTotal: pctCaptTotalConfig,
+    pctPorCaptador,
+    pctImobiliariaLiquidoReal,
   }
 }

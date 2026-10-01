@@ -171,7 +171,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       competencia: compStr,
       dataRecebimento: dataRecStr,
       formaPagamento: 'Centralizada',
-      modoCalculo: 'valor_fixo',
+      modoCalculo: '%_vgv',
       vgv: '',
       pctNegociacao: defaultPctComissaoPadrao,
       valorComissao: valorTransacao,
@@ -229,14 +229,15 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
 
       const merged = { ...current, ...updates }
 
-      // Se a comissão foi alterada ou situação não foi explicitada:
-      // Caso haja apenas 1 parte:
-      // - Se valorComissao > totalTransacao e o usuário não forçou situacaoRecebimento='Recebido' explicitamente nos updates,
-      //   ajustar situacaoRecebimento para 'Parcial' e valorRecebido para totalTransacao se ainda não definido ou se era o valorComissao anterior.
+      // Se a comissão foi alterada ou a situação de recebimento mudou:
+      // Quando for 'Parcial', o valor recebido desta parte é registrado com o valor do extrato (ou valorRecebido manual).
       if (prev.length === 1 && updates.valorComissao !== undefined) {
         const novaComissao = Number(updates.valorComissao) || 0
         if (novaComissao > totalTransacao) {
-          if (updates.situacaoRecebimento === undefined) {
+          if (
+            updates.situacaoRecebimento === undefined &&
+            current.situacaoRecebimento !== 'Recebido'
+          ) {
             merged.situacaoRecebimento = 'Parcial'
             if (
               merged.valorRecebido === '' ||
@@ -245,14 +246,6 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
             ) {
               merged.valorRecebido = totalTransacao
             }
-          }
-        } else if (novaComissao === totalTransacao) {
-          if (
-            updates.situacaoRecebimento === undefined &&
-            current.situacaoRecebimento === 'Parcial'
-          ) {
-            merged.situacaoRecebimento = 'Recebido'
-            merged.valorRecebido = totalTransacao
           }
         }
       }
@@ -376,7 +369,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       competencia: currentPart.competencia,
       dataRecebimento: currentPart.dataRecebimento,
       formaPagamento: currentPart.formaPagamento,
-      modoCalculo: 'valor_fixo',
+      modoCalculo: '%_vgv',
       vgv: '',
       pctNegociacao: currentPart.pctNegociacao,
       valorComissao: valorSugerido,
@@ -850,6 +843,163 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                     )}
                   </div>
 
+                  {/* Bloco: O VALOR RECEBIDO É INTEGRAL OU PARCIAL? */}
+                  <div className="p-3.5 rounded-xl bg-[#0B0E14]/70 border border-[#232A3B] space-y-2">
+                    <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                      O VALOR RECEBIDO NO EXTRATO É:
+                    </label>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      {/* Integral */}
+                      <div
+                        onClick={() => {
+                          const parteRec =
+                            partes.length === 1
+                              ? totalTransacao
+                              : currentPart.valorRecebido || totalTransacao
+                          updateCurrentPart({
+                            situacaoRecebimento: 'Recebido',
+                            valorRecebido: parteRec,
+                            valorComissao:
+                              currentPart.situacaoRecebimento === 'Parcial' &&
+                              currentPart.valorComissao > parteRec &&
+                              currentPart.vgv
+                                ? currentPart.valorComissao
+                                : parteRec,
+                          })
+                        }}
+                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                          currentPart.situacaoRecebimento === 'Recebido'
+                            ? 'bg-[#151C2A] border-[#E63946] ring-1 ring-[#E63946]/40'
+                            : 'bg-[#0E121B] border-[#232A3B] hover:border-slate-600'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`tipo_recebimento_${currentPart.id}`}
+                          checked={currentPart.situacaoRecebimento === 'Recebido'}
+                          onChange={() => {
+                            const parteRec =
+                              partes.length === 1
+                                ? totalTransacao
+                                : currentPart.valorRecebido || totalTransacao
+                            updateCurrentPart({
+                              situacaoRecebimento: 'Recebido',
+                              valorRecebido: parteRec,
+                              valorComissao:
+                                currentPart.situacaoRecebimento === 'Parcial' &&
+                                currentPart.valorComissao > parteRec &&
+                                currentPart.vgv
+                                  ? currentPart.valorComissao
+                                  : parteRec,
+                            })
+                          }}
+                          className="mt-0.5 accent-[#E63946] cursor-pointer"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-white block">Integral</span>
+                          <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
+                            O extrato quitou toda a comissão desta venda (
+                            {formatCurrency(
+                              partes.length === 1
+                                ? totalTransacao
+                                : Number(currentPart.valorRecebido) || totalTransacao,
+                            )}
+                            ).
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Parcial */}
+                      <div
+                        onClick={() => {
+                          const vgvVal = Number(currentPart.vgv) || 0
+                          const pctVal = Number(currentPart.pctNegociacao) || 6
+                          const calcFromVgv = vgvVal > 0 ? (vgvVal * pctVal) / 100 : 0
+                          const parteRec =
+                            partes.length === 1
+                              ? totalTransacao
+                              : currentPart.valorRecebido || totalTransacao
+                          const novaComissao =
+                            currentPart.valorComissao > parteRec
+                              ? currentPart.valorComissao
+                              : calcFromVgv > 0
+                                ? calcFromVgv
+                                : ''
+
+                          updateCurrentPart({
+                            situacaoRecebimento: 'Parcial',
+                            valorRecebido: parteRec,
+                            valorComissao: novaComissao as any,
+                          })
+                        }}
+                        className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start gap-2.5 ${
+                          currentPart.situacaoRecebimento === 'Parcial'
+                            ? 'bg-[#151C2A] border-amber-500 ring-1 ring-amber-500/40'
+                            : 'bg-[#0E121B] border-[#232A3B] hover:border-slate-600'
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name={`tipo_recebimento_${currentPart.id}`}
+                          checked={currentPart.situacaoRecebimento === 'Parcial'}
+                          onChange={() => {
+                            const vgvVal = Number(currentPart.vgv) || 0
+                            const pctVal = Number(currentPart.pctNegociacao) || 6
+                            const calcFromVgv = vgvVal > 0 ? (vgvVal * pctVal) / 100 : 0
+                            const parteRec =
+                              partes.length === 1
+                                ? totalTransacao
+                                : currentPart.valorRecebido || totalTransacao
+                            const novaComissao =
+                              currentPart.valorComissao > parteRec
+                                ? currentPart.valorComissao
+                                : calcFromVgv > 0
+                                  ? calcFromVgv
+                                  : ''
+
+                            updateCurrentPart({
+                              situacaoRecebimento: 'Parcial',
+                              valorRecebido: parteRec,
+                              valorComissao: novaComissao as any,
+                            })
+                          }}
+                          className="mt-0.5 accent-amber-500 cursor-pointer"
+                        />
+                        <div>
+                          <span className="text-xs font-bold text-amber-300 block">Parcial</span>
+                          <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
+                            O extrato (
+                            {formatCurrency(
+                              partes.length === 1
+                                ? totalTransacao
+                                : Number(currentPart.valorRecebido) || totalTransacao,
+                            )}
+                            ) é apenas parte da comissão total.
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {currentPart.situacaoRecebimento === 'Parcial' && (
+                      <div className="mt-2 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/25 text-xs text-amber-200 flex items-center justify-between">
+                        <span>
+                          Valor recebido registrado:{' '}
+                          <strong className="text-white font-bold">
+                            {formatCurrency(totalTransacao)}
+                          </strong>
+                        </span>
+                        {Number(currentPart.valorComissao) > totalTransacao && (
+                          <span>
+                            Saldo pendente a receber:{' '}
+                            <strong className="text-amber-400 font-bold">
+                              {formatCurrency(Number(currentPart.valorComissao) - totalTransacao)}
+                            </strong>
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* Bloco: FORMA DE PAGAMENTO DA COMISSÃO */}
                   <div className="p-3.5 rounded-xl bg-[#0B0E14]/70 border border-[#232A3B] space-y-2">
                     <label className="block text-[10px] font-bold uppercase tracking-widest text-slate-400">
@@ -875,7 +1025,8 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                         <div>
                           <span className="text-xs font-bold text-white block">Centralizada</span>
                           <span className="text-[10px] text-slate-400 leading-tight block mt-0.5">
-                            Imobiliária recebe tudo (6% imposto sobre o total)
+                            Imobiliária recebe tudo (imposto 6% só sobre a parte imob; repasses
+                            integrais)
                           </span>
                         </div>
                       </div>
@@ -943,7 +1094,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                     </button>
                   </div>
 
-                  {/* VGV e Comissão */}
+                  {/* VGV e Comissão Total */}
                   {currentPart.modoCalculo === '%_vgv' ? (
                     <div className="space-y-3">
                       <div>
@@ -953,7 +1104,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                         <Input
                           type="number"
                           step="0.01"
-                          placeholder="Ex: 250000"
+                          placeholder="Ex: 125000"
                           value={currentPart.vgv}
                           onChange={(e) => {
                             const vgvVal = e.target.value !== '' ? Number(e.target.value) : ''
@@ -966,7 +1117,9 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                               valorRecebido:
                                 currentPart.situacaoRecebimento === 'Recebido'
                                   ? calculated
-                                  : currentPart.valorRecebido,
+                                  : currentPart.valorRecebido !== ''
+                                    ? currentPart.valorRecebido
+                                    : totalTransacao,
                             })
                           }}
                           className={`bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 ${
@@ -981,7 +1134,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                           </p>
                         ) : (
                           <p className="text-[10px] text-slate-400 mt-1">
-                            Usado para cálculo de metas
+                            Valor total do negócio / imóvel
                           </p>
                         )}
                       </div>
@@ -1007,7 +1160,9 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                 valorRecebido:
                                   currentPart.situacaoRecebimento === 'Recebido'
                                     ? calculated
-                                    : currentPart.valorRecebido,
+                                    : currentPart.valorRecebido !== ''
+                                      ? currentPart.valorRecebido
+                                      : totalTransacao,
                               })
                             }}
                             className={`bg-[#0B0E14] text-slate-100 font-bold text-xs h-10 ${
@@ -1025,11 +1180,21 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
 
                         <div>
                           <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                            COMISSÃO CALCULADA
+                            COMISSÃO TOTAL REAL (CALCULADA) *
                           </label>
-                          <div className="bg-[#0B0E14] border border-[#232A3B] text-slate-100 font-black text-sm h-10 px-3 flex items-center rounded-lg">
-                            {formatCurrency(currentPart.valorComissao)}
+                          <div className="bg-[#0B0E14] border border-[#232A3B] text-slate-100 font-black text-sm h-10 px-3 flex items-center justify-between rounded-lg">
+                            <span>{formatCurrency(Number(currentPart.valorComissao) || 0)}</span>
+                            {currentPart.situacaoRecebimento === 'Parcial' && (
+                              <span className="text-[10px] font-semibold text-amber-400">
+                                Total acordado
+                              </span>
+                            )}
                           </div>
+                          {errors[`p${activePartIndex}_valorComissao`] && (
+                            <p className="text-[10px] text-red-400 mt-1">
+                              {errors[`p${activePartIndex}_valorComissao`]}
+                            </p>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -1052,19 +1217,17 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                             }
                             className="bg-[#0B0E14] text-slate-100 text-xs h-10 border-[#232A3B]"
                           />
-                          <p className="text-[10px] text-slate-400 mt-1">
-                            Usado para cálculo de metas
-                          </p>
+                          <p className="text-[10px] text-slate-400 mt-1">Usado para metas</p>
                         </div>
 
                         <div>
                           <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                            VALOR DA COMISSÃO *
+                            COMISSÃO TOTAL REAL (VALOR FIXO) *
                           </label>
                           <Input
                             type="number"
                             step="0.01"
-                            placeholder="Ex: 15000"
+                            placeholder="Ex: 7500"
                             value={currentPart.valorComissao}
                             onChange={(e) => {
                               const val = e.target.value !== '' ? Number(e.target.value) : 0
@@ -1073,7 +1236,9 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                 valorRecebido:
                                   currentPart.situacaoRecebimento === 'Recebido'
                                     ? val
-                                    : currentPart.valorRecebido,
+                                    : currentPart.valorRecebido !== ''
+                                      ? currentPart.valorRecebido
+                                      : totalTransacao,
                               })
                             }}
                             className={`bg-[#E9EEF9] text-[#0B0E14] font-bold text-sm h-10 ${
@@ -1142,47 +1307,119 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Resumo da divisão em R$ */}
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-[#232A3B]/60 text-xs">
-                      <div>
-                        <span className="text-[10px] text-slate-400 block font-medium">
-                          Imobiliária:
+                    {/* Resumo da divisão em R$ (Calculada sobre a comissão total) */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between text-[11px] text-slate-400">
+                        <span>
+                          Divisão sobre a comissão TOTAL (
+                          {formatCurrency(Number(currentPart.valorComissao) || 0)}):
                         </span>
-                        <span className="font-bold text-emerald-400 block tabular-nums">
-                          {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
-                        </span>
+                        <span className="text-[10px] text-slate-500">Imposto 6% só s/ Imob</span>
+                      </div>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 border-t border-[#232A3B]/60 text-xs">
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">
+                            Imobiliária Bruta:
+                          </span>
+                          <span className="font-bold text-emerald-300 block tabular-nums">
+                            {formatCurrency(divisaoAoVivo.valorImobiliariaBruto)}
+                          </span>
+                          <span className="text-[9px] text-slate-500 block">
+                            Líq: {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
+                          </span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">
+                            Corretor ({currentPart.pctCorretor}%):
+                          </span>
+                          <span className="font-bold text-white block tabular-nums">
+                            {formatCurrency(divisaoAoVivo.valorCorretor)}
+                          </span>
+                          <span className="text-[9px] text-emerald-400/80 block">Integral</span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">
+                            Captador ({currentPart.pctCaptador}%):
+                          </span>
+                          <span className="font-bold text-white block tabular-nums">
+                            {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
+                          </span>
+                          <span className="text-[9px] text-emerald-400/80 block">Integral</span>
+                        </div>
+
+                        <div>
+                          <span className="text-[10px] text-slate-400 block font-medium">
+                            Imposto (6% Imob):
+                          </span>
+                          <span className="font-bold text-red-400 block tabular-nums">
+                            {formatCurrency(divisaoAoVivo.valorImposto)}
+                          </span>
+                          <span className="text-[9px] text-slate-500 block">
+                            6% de {formatCurrency(divisaoAoVivo.valorImobiliariaBruto)}
+                          </span>
+                        </div>
                       </div>
 
-                      <div>
-                        <span className="text-[10px] text-slate-400 block font-medium">
-                          Corretor:
-                        </span>
-                        <span className="font-bold text-white block tabular-nums">
-                          {formatCurrency(divisaoAoVivo.valorCorretor)}
-                        </span>
-                      </div>
-
-                      <div>
-                        <span className="text-[10px] text-slate-400 block font-medium">
-                          Captador:
-                        </span>
-                        <span className="font-bold text-white block tabular-nums">
-                          {formatCurrency(divisaoAoVivo.valorCaptadorTotal)}
-                        </span>
-                      </div>
-
-                      <div>
-                        <span className="text-[10px] text-slate-400 block font-medium">
-                          Imposto 6%:
-                        </span>
-                        <span className="font-bold text-red-500 block tabular-nums">
-                          {formatCurrency(divisaoAoVivo.valorImposto)}
-                        </span>
-                      </div>
+                      {/* Se for parcial, mostrar também a fatia desta etapa proporcional ao recebido */}
+                      {currentPart.situacaoRecebimento === 'Parcial' &&
+                        (() => {
+                          const comissaoTotalNum = Number(currentPart.valorComissao) || 0
+                          const recNum = Number(currentPart.valorRecebido) || 0
+                          const fracao = comissaoTotalNum > 0 ? recNum / comissaoTotalNum : 0
+                          return (
+                            <div className="mt-2 pt-2 border-t border-amber-500/20 bg-amber-500/5 p-2 rounded-lg space-y-1.5">
+                              <div className="flex items-center justify-between text-[10px] text-amber-300 font-bold uppercase">
+                                <span>
+                                  Repasses Desta Etapa ({formatCurrency(recNum)} ·{' '}
+                                  {(fracao * 100).toFixed(1)}%):
+                                </span>
+                                <span>Proporcional ao recebido</span>
+                              </div>
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                                <div>
+                                  <span className="text-[10px] text-slate-400 block">
+                                    Imob Líq:
+                                  </span>
+                                  <span className="font-bold text-emerald-400 tabular-nums">
+                                    {formatCurrency(
+                                      round2(divisaoAoVivo.valorImobiliariaLiquido * fracao),
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-slate-400 block">
+                                    Corretor:
+                                  </span>
+                                  <span className="font-bold text-white tabular-nums">
+                                    {formatCurrency(round2(divisaoAoVivo.valorCorretor * fracao))}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-slate-400 block">
+                                    Captador:
+                                  </span>
+                                  <span className="font-bold text-white tabular-nums">
+                                    {formatCurrency(
+                                      round2(divisaoAoVivo.valorCaptadorTotal * fracao),
+                                    )}
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="text-[10px] text-slate-400 block">Imposto:</span>
+                                  <span className="font-bold text-red-400 tabular-nums">
+                                    {formatCurrency(round2(divisaoAoVivo.valorImposto * fracao))}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })()}
                     </div>
 
                     <div className="pt-2 border-t border-[#232A3B]/40 flex items-center justify-between">
-                      <span className="text-xs text-slate-400">Líquido para imobiliária:</span>
+                      <span className="text-xs text-slate-400">Líquido total imobiliária:</span>
                       <span className="text-sm font-black text-emerald-400 tabular-nums">
                         {formatCurrency(divisaoAoVivo.valorImobiliariaLiquido)}
                       </span>

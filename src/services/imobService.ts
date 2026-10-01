@@ -546,11 +546,9 @@ export const VendaService = {
       user: userId,
     })
 
-    // 2. Gerar Saída Pendente para Corretor (40% sobre base líquida na Centralizada ou integral na Separada)
-    // Nas duas formas, a imobiliária gera saídas pendentes de corretor e captador(es)
+    // 2. Gerar Saída Pendente para Corretor (% integral sem imposto; proporcional à fração recebida se parcial)
     if (valCorr > 0) {
-      const detalheForma =
-        formaPagamento === 'Centralizada' ? ' [Centralizada pós-imposto]' : ' [Separada]'
+      const detalheForma = formaPagamento === 'Centralizada' ? ' [Centralizada]' : ' [Separada]'
       await pb.collection('transacoes').create({
         tipo: 'saida',
         descricao: `Repasse comissão corretor (${corretorNome})${detalheForma} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
@@ -565,14 +563,13 @@ export const VendaService = {
       })
     }
 
-    // 3. Gerar Saída Pendente para cada Captador (dividido igualmente entre eles)
+    // 3. Gerar Saída Pendente para cada Captador (% integral rateado entre captadores; proporcional à fração recebida se parcial)
     if (hasCaptador && valCaptTotal > 0) {
-      const detalheForma =
-        formaPagamento === 'Centralizada' ? ' [Centralizada pós-imposto]' : ' [Separada]'
+      const detalheForma = formaPagamento === 'Centralizada' ? ' [Centralizada]' : ' [Separada]'
 
       for (const cId of captadores) {
         const nomeCapt = captadoresNomes[cId] || 'Captador'
-        const descDivisao = numCaptadores > 1 ? ` (${pctPorCaptador}% cada)` : ''
+        const descDivisao = numCaptadores > 1 ? ` (${pctPorCaptador.toFixed(1)}% cada)` : ''
 
         await pb.collection('transacoes').create({
           tipo: 'saida',
@@ -589,12 +586,9 @@ export const VendaService = {
       }
     }
 
-    // 4. Gerar Saída Pendente de Imposto (6% sobre total se Centralizada, ou 6% sobre parte da imob se Separada)
+    // 4. Gerar Saída Pendente de Imposto (6% incidente exclusivamente sobre a parte da imobiliária)
     if (valImposto > 0) {
-      const descImposto =
-        formaPagamento === 'Separada'
-          ? `Imposto Simples Nacional (6% s/ parte Imob) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`
-          : `Imposto Simples Nacional (6% total) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`
+      const descImposto = `Imposto Simples Nacional (6% s/ parte Imob) - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`
 
       await pb.collection('transacoes').create({
         tipo: 'saida',
