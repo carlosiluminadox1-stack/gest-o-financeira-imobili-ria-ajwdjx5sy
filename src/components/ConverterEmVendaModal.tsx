@@ -272,7 +272,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
     })
   }
 
-  // Divisão da comissão total (valores integrais)
+  // Divisão da comissão total (valores integrais sobre a comissão total acordada)
   const divisaoTotal = useMemo(() => {
     if (!currentPart) {
       return calcularDivisaoComissao({
@@ -300,7 +300,9 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
   // Se for recebimento parcial (ou valorComissao > valorRecebido), TODAS as linhas da prévia
   // usam a MESMA base proporcional (fração = valorRecebido / valorComissao), escalando
   // exatamente os valores da divisão total para garantir consistência perfeita entre
-  // Imobiliária, Corretor, Captador e Imposto 6%.
+  // Imobiliária, Corretor, Captador e Imposto 6%:
+  // Centralizada: soma(imob + corretor + captador + imposto) = valorRecebido
+  // Separada: soma(imobLiquido + corretor + captador + imposto) = valorRecebido
   const divisaoAoVivo = useMemo(() => {
     if (!currentPart) {
       return calcularDivisaoComissao({
@@ -335,7 +337,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       })
     }
 
-    // Proporção de recebimento nesta etapa
+    // Proporção de recebimento nesta etapa (fração recebida da comissão total)
     const frac = valorRecebidoEfetivo / valorTotalComissao
     const tot = divisaoTotal
 
