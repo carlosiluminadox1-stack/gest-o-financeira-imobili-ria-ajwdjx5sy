@@ -157,10 +157,29 @@ export default function Vendas() {
     return typeof formValorRecebido === 'number' ? formValorRecebido : 0
   }, [formSituacaoRecebimento, comissaoTotalCalculada, formValorRecebido])
 
-  // Cálculo da Divisão ao vivo estritamente de acordo com as regras dos prints
+  // Cálculo da Divisão ao vivo estritamente de acordo com as regras:
+  // Se for parcial (ou comissão total > valorBaseCalculo), calcula sobre a comissão total
+  // e escala proporcionalmente pela fração recebida para manter todas as linhas consistentes.
   const divisaoAoVivo = useMemo(() => {
-    return calcularDivisaoComissao({
-      valorBase: valorBaseCalculo,
+    const ehParcial =
+      formSituacaoRecebimento === 'Parcial' ||
+      (comissaoTotalCalculada > 0 && valorBaseCalculo < comissaoTotalCalculada)
+
+    if (!ehParcial || comissaoTotalCalculada <= 0) {
+      return calcularDivisaoComissao({
+        valorBase: valorBaseCalculo,
+        formaPagamento: formFormaPagamento,
+        temCaptador: pctCaptador > 0,
+        numCaptadores: formCaptadores.length || (pctCaptador > 0 ? 1 : 0),
+        pctImobConfig: pctImobiliaria,
+        pctCorrConfig: pctCorretor,
+        pctCaptConfig: pctCaptador,
+        aliquotaImposto: 6,
+      })
+    }
+
+    const calcTotal = calcularDivisaoComissao({
+      valorBase: comissaoTotalCalculada,
       formaPagamento: formFormaPagamento,
       temCaptador: pctCaptador > 0,
       numCaptadores: formCaptadores.length || (pctCaptador > 0 ? 1 : 0),
@@ -169,8 +188,25 @@ export default function Vendas() {
       pctCaptConfig: pctCaptador,
       aliquotaImposto: 6,
     })
+
+    const frac = valorBaseCalculo / comissaoTotalCalculada
+
+    return {
+      ...calcTotal,
+      valorBase: valorBaseCalculo,
+      baseCalculoPartes: calcTotal.baseCalculoPartes * frac,
+      valorImposto: calcTotal.valorImposto * frac,
+      baseImposto: calcTotal.baseImposto * frac,
+      valorImobiliariaLiquido: calcTotal.valorImobiliariaLiquido * frac,
+      valorImobiliariaBruto: calcTotal.valorImobiliariaBruto * frac,
+      valorCorretor: calcTotal.valorCorretor * frac,
+      valorCaptadorTotal: calcTotal.valorCaptadorTotal * frac,
+      valorPorCaptador: calcTotal.valorPorCaptador * frac,
+    }
   }, [
     valorBaseCalculo,
+    comissaoTotalCalculada,
+    formSituacaoRecebimento,
     formFormaPagamento,
     pctImobiliaria,
     pctCorretor,

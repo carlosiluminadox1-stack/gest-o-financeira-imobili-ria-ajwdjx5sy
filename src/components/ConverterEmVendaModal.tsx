@@ -272,8 +272,8 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
     })
   }
 
-  // Divisão ao vivo da parte ativa
-  const divisaoAoVivo = useMemo(() => {
+  // Divisão da comissão total (valores integrais)
+  const divisaoTotal = useMemo(() => {
     if (!currentPart) {
       return calcularDivisaoComissao({
         valorBase: 0,
@@ -281,15 +281,10 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       })
     }
 
-    const valorBase =
-      currentPart.situacaoRecebimento === 'Recebido'
-        ? currentPart.valorComissao
-        : typeof currentPart.valorRecebido === 'number'
-          ? currentPart.valorRecebido
-          : 0
+    const valorTotalComissao = Number(currentPart.valorComissao) || 0
 
     return calcularDivisaoComissao({
-      valorBase,
+      valorBase: valorTotalComissao,
       formaPagamento: currentPart.formaPagamento,
       temCaptador: currentPart.pctCaptador > 0,
       numCaptadores: currentPart.captadores.length || (currentPart.pctCaptador > 0 ? 1 : 0),
@@ -299,6 +294,64 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
       aliquotaImposto: 6,
     })
   }, [currentPart])
+
+  // Divisão ao vivo da parte ativa:
+  // Se for recebimento total (ou comissão total <= 0), calcula diretamente sobre o recebido/comissão.
+  // Se for recebimento parcial (ou valorComissao > valorRecebido), TODAS as linhas da prévia
+  // usam a MESMA base proporcional (fração = valorRecebido / valorComissao), escalando
+  // exatamente os valores da divisão total para garantir consistência perfeita entre
+  // Imobiliária, Corretor, Captador e Imposto 6%.
+  const divisaoAoVivo = useMemo(() => {
+    if (!currentPart) {
+      return calcularDivisaoComissao({
+        valorBase: 0,
+        formaPagamento: 'Centralizada',
+      })
+    }
+
+    const valorRecebidoEfetivo =
+      currentPart.situacaoRecebimento === 'Recebido'
+        ? currentPart.valorComissao
+        : typeof currentPart.valorRecebido === 'number'
+          ? currentPart.valorRecebido
+          : 0
+
+    const valorTotalComissao = Number(currentPart.valorComissao) || 0
+    const ehParcial =
+      currentPart.situacaoRecebimento === 'Parcial' ||
+      (valorTotalComissao > 0 && valorRecebidoEfetivo < valorTotalComissao)
+
+    // Se não for parcial ou comissão total inválida, calcula direto sobre a base recebida
+    if (!ehParcial || valorTotalComissao <= 0) {
+      return calcularDivisaoComissao({
+        valorBase: valorRecebidoEfetivo,
+        formaPagamento: currentPart.formaPagamento,
+        temCaptador: currentPart.pctCaptador > 0,
+        numCaptadores: currentPart.captadores.length || (currentPart.pctCaptador > 0 ? 1 : 0),
+        pctImobConfig: currentPart.pctImobiliaria,
+        pctCorrConfig: currentPart.pctCorretor,
+        pctCaptConfig: currentPart.pctCaptador,
+        aliquotaImposto: 6,
+      })
+    }
+
+    // Proporção de recebimento nesta etapa
+    const frac = valorRecebidoEfetivo / valorTotalComissao
+    const tot = divisaoTotal
+
+    return {
+      ...tot,
+      valorBase: valorRecebidoEfetivo,
+      baseCalculoPartes: tot.baseCalculoPartes * frac,
+      valorImposto: tot.valorImposto * frac,
+      baseImposto: tot.baseImposto * frac,
+      valorImobiliariaLiquido: tot.valorImobiliariaLiquido * frac,
+      valorImobiliariaBruto: tot.valorImobiliariaBruto * frac,
+      valorCorretor: tot.valorCorretor * frac,
+      valorCaptadorTotal: tot.valorCaptadorTotal * frac,
+      valorPorCaptador: tot.valorPorCaptador * frac,
+    }
+  }, [currentPart, divisaoTotal])
 
   const formatCurrency = (val: number) => {
     return val.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })

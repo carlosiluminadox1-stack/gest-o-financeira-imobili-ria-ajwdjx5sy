@@ -443,7 +443,19 @@ export const VendaService = {
     const pctCaptTotal = paramPctCapt ?? (hasCaptador ? (config?.percentual_captador ?? 10) : 0)
 
     // Usar cálculo centralizado e padronizado
-    const calc = calcularDivisaoComissao({
+    // Se recebimento parcial (ou comissão total > valorBase recebido nesta etapa),
+    // calcular a divisão total da comissão e escalar proporcionalmente pela fração recebida,
+    // garantindo exatamente a mesma base e fórmula da prévia ao vivo.
+    const ehParcialOuFracionado =
+      params.valorTotalComissao > 0 && (valorBase < params.valorTotalComissao || ehComplementar)
+
+    let valCorr = 0
+    let valCaptTotal = 0
+    let valImobTotal = 0
+    let valImposto = 0
+    let valPorCaptador = 0
+    let pctPorCaptador = 0
+    let calc = calcularDivisaoComissao({
       valorBase,
       formaPagamento,
       temCaptador: hasCaptador,
@@ -454,10 +466,44 @@ export const VendaService = {
       aliquotaImposto: 6,
     })
 
-    const valCorr = calc.valorCorretor
-    const valCaptTotal = calc.valorCaptadorTotal
-    const valImobTotal = calc.valorImobiliariaLiquido
-    const valImposto = calc.valorImposto
+    if (ehParcialOuFracionado) {
+      const calcTotal = calcularDivisaoComissao({
+        valorBase: params.valorTotalComissao,
+        formaPagamento,
+        temCaptador: hasCaptador,
+        numCaptadores,
+        pctImobConfig: pctImob,
+        pctCorrConfig: pctCorr,
+        pctCaptConfig: pctCaptTotal,
+        aliquotaImposto: 6,
+      })
+      const frac = valorBase / params.valorTotalComissao
+      valCorr = calcTotal.valorCorretor * frac
+      valCaptTotal = calcTotal.valorCaptadorTotal * frac
+      valImobTotal = calcTotal.valorImobiliariaLiquido * frac
+      valImposto = calcTotal.valorImposto * frac
+      valPorCaptador = calcTotal.valorPorCaptador * frac
+      pctPorCaptador = calcTotal.pctPorCaptador
+      calc = {
+        ...calcTotal,
+        valorBase,
+        baseCalculoPartes: calcTotal.baseCalculoPartes * frac,
+        valorImposto: valImposto,
+        baseImposto: calcTotal.baseImposto * frac,
+        valorImobiliariaLiquido: valImobTotal,
+        valorImobiliariaBruto: calcTotal.valorImobiliariaBruto * frac,
+        valorCorretor: valCorr,
+        valorCaptadorTotal: valCaptTotal,
+        valorPorCaptador: valPorCaptador,
+      }
+    } else {
+      valCorr = calc.valorCorretor
+      valCaptTotal = calc.valorCaptadorTotal
+      valImobTotal = calc.valorImobiliariaLiquido
+      valImposto = calc.valorImposto
+      valPorCaptador = calc.valorPorCaptador
+      pctPorCaptador = calc.pctPorCaptador
+    }
 
     const dataIso = dataVenda || new Date().toISOString()
     const prefixoDesc = ehComplementar
@@ -521,8 +567,6 @@ export const VendaService = {
 
     // 3. Gerar Saída Pendente para cada Captador (dividido igualmente entre eles)
     if (hasCaptador && valCaptTotal > 0) {
-      const valPorCaptador = calc.valorPorCaptador
-      const pctPorCaptador = calc.pctPorCaptador
       const detalheForma =
         formaPagamento === 'Centralizada' ? ' [Centralizada pós-imposto]' : ' [Separada]'
 
@@ -593,9 +637,6 @@ export const VendaService = {
 
     // Captadores (lançamento individual para cada corretor captador)
     if (hasCaptador && valCaptTotal > 0) {
-      const valPorCaptador = calc.valorPorCaptador
-      const pctPorCaptador = calc.pctPorCaptador
-
       for (const cId of captadores) {
         await pb.collection('comissoes').create({
           venda: vendaId,
