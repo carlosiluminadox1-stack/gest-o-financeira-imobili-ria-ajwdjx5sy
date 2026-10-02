@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-10-02T17:13:50.686Z",
+  "generatedAt": "2026-10-02T17:46:27.304Z",
   "collections": [
     {
       "name": "users",
@@ -247,6 +247,12 @@
         {
           "name": "codigo_referencia",
           "type": "text",
+          "required": false,
+          "system": false
+        },
+        {
+          "name": "valor_previsto_imobiliaria",
+          "type": "number",
           "required": false,
           "system": false
         }

@@ -19,7 +19,7 @@ import {
   UploadCloud,
 } from 'lucide-react'
 import { ImportarExtratoModal } from '@/components/ImportarExtratoModal'
-import { ConverterEmVendaModal } from '@/components/ConverterEmVendaModal'
+import { VincularAVendaModal } from '@/components/VincularAVendaModal'
 import { TransacaoService, DespesaService, CategoriaService } from '@/services/imobService'
 import {
   Transacao,
@@ -80,9 +80,9 @@ export default function FluxoCaixa() {
   // Modal Importar Extrato Bancário
   const [isImportarExtratoOpen, setIsImportarExtratoOpen] = useState(false)
 
-  // Modal Converter em Venda
-  const [isConverterModalOpen, setIsConverterModalOpen] = useState(false)
-  const [convertingTransacao, setConvertingTransacao] = useState<Transacao | null>(null)
+  // Modal Vincular a uma Venda
+  const [isVincularModalOpen, setIsVincularModalOpen] = useState(false)
+  const [vincularTransacao, setVincularTransacao] = useState<Transacao | null>(null)
 
   // Modal Nova / Editar Transação
   const [isTransacaoModalOpen, setIsTransacaoModalOpen] = useState(false)
@@ -281,10 +281,10 @@ export default function FluxoCaixa() {
     }
   }, [transacoes, despesas, periodo, start, end])
 
-  // Abrir modal Converter em Venda
-  const handleOpenConverterEmVenda = (t: Transacao) => {
-    setConvertingTransacao(t)
-    setIsConverterModalOpen(true)
+  // Abrir modal Vincular a uma Venda
+  const handleOpenVincularVenda = (t: Transacao) => {
+    setVincularTransacao(t)
+    setIsVincularModalOpen(true)
   }
 
   // Gráfico Entradas x Saídas
@@ -1458,7 +1458,14 @@ export default function FluxoCaixa() {
                           </span>
                         </td>
                         <td className="py-3.5 px-4 font-semibold text-slate-100 max-w-[260px]">
-                          {t.descricao}
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span>{t.descricao}</span>
+                            {t.expand?.venda?.codigo_referencia && (
+                              <span className="font-mono text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-medium">
+                                {t.expand.venda.codigo_referencia}
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3.5 px-4 text-slate-300 capitalize">{t.categoria}</td>
                         <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">
@@ -1522,17 +1529,17 @@ export default function FluxoCaixa() {
                         </td>
                         <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end gap-1">
-                            {/* Botão Converter em Venda: exclusivo para transações de ENTRADA não vinculadas a vendas */}
+                            {/* Botão Vincular a uma Venda: para transações de ENTRADA não vinculadas a vendas */}
                             {t.tipo === 'entrada' && !t.venda && (
                               <Button
                                 variant="outline"
                                 size="sm"
-                                title="Converter esta entrada em Venda (comissões, VGV, corretores e divisões)"
-                                onClick={() => handleOpenConverterEmVenda(t)}
+                                title="Vincular esta entrada a uma venda com saldo a receber"
+                                onClick={() => handleOpenVincularVenda(t)}
                                 className="h-7 px-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:border-emerald-500/60 font-semibold text-[11px] rounded-lg gap-1 shadow-sm transition-all active:scale-95"
                               >
                                 <Building2 className="w-3 h-3 text-emerald-400" />
-                                <span className="hidden sm:inline">Converter</span>
+                                <span className="hidden sm:inline">Vincular a uma venda</span>
                               </Button>
                             )}
                             <Button
@@ -2414,11 +2421,11 @@ export default function FluxoCaixa() {
         }}
       />
 
-      {/* Modal Converter em Venda */}
-      <ConverterEmVendaModal
-        open={isConverterModalOpen}
-        onOpenChange={setIsConverterModalOpen}
-        transacao={convertingTransacao}
+      {/* Modal Vincular a uma Venda */}
+      <VincularAVendaModal
+        isOpen={isVincularModalOpen}
+        onClose={() => setIsVincularModalOpen(false)}
+        transacao={vincularTransacao}
         userId={user?.id || ''}
         onSuccess={() => {
           loadData()

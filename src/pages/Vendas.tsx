@@ -102,11 +102,30 @@ export default function Vendas() {
   const [showSecondCorretor, setShowSecondCorretor] = useState(false)
   const [showSecondCaptador, setShowSecondCaptador] = useState(false)
 
-  const [formSituacaoRecebimento, setFormSituacaoRecebimento] =
-    useState<SituacaoRecebimento>('Recebido')
-  const [formValorRecebido, setFormValorRecebido] = useState<number | ''>('')
+  const [temRecebimentoInicial, setTemRecebimentoInicial] = useState(false)
+  const [formValorRecebidoInicial, setFormValorRecebidoInicial] = useState<number | ''>('')
+  const [formDataRecebimentoInicial, setFormDataRecebimentoInicial] = useState<string>(
+    new Date().toISOString().split('T')[0],
+  )
   const [formStatus, setFormStatus] = useState<VendaStatus>('realizada')
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+
+  // Modal Registrar Recebimento Complementar
+  const [isRecebimentoModalOpen, setIsRecebimentoModalOpen] = useState(false)
+  const [selectedVendaParaRecebimento, setSelectedVendaParaRecebimento] = useState<Venda | null>(
+    null,
+  )
+  const [recComplementarValor, setRecComplementarValor] = useState<number | ''>('')
+  const [recComplementarData, setRecComplementarData] = useState<string>(
+    new Date().toISOString().split('T')[0],
+  )
+  const [savingRecebimento, setSavingRecebimento] = useState(false)
+
+  // Modal Detalhes da Venda
+  const [isDetalhesModalOpen, setIsDetalhesModalOpen] = useState(false)
+  const [detalhesVenda, setDetalhesVenda] = useState<Venda | null>(null)
+  const [detalhesTransacoes, setDetalhesTransacoes] = useState<Transacao[]>([])
+  const [loadingDetalhes, setLoadingDetalhes] = useState(false)
 
   // Modal Exclusão Individual
   const [deletingVenda, setDeletingVenda] = useState<Venda | null>(null)
@@ -149,36 +168,9 @@ export default function Vendas() {
     return (vgvNumber * pctNegNumber) / 100
   }, [modoCalculo, formValorFixoComissao, vgvNumber, pctNegNumber])
 
-  // Base efetiva de cálculo
-  const valorBaseCalculo = useMemo(() => {
-    if (formSituacaoRecebimento === 'Recebido') {
-      return comissaoTotalCalculada
-    }
-    return typeof formValorRecebido === 'number' ? formValorRecebido : 0
-  }, [formSituacaoRecebimento, comissaoTotalCalculada, formValorRecebido])
-
-  // Cálculo da Divisão ao vivo estritamente de acordo com as regras:
-  // Se for parcial (ou comissão total > valorBaseCalculo), calcula sobre a comissão total
-  // e escala proporcionalmente pela fração recebida para manter todas as linhas consistentes.
+  // Divisão prevista total da venda
   const divisaoAoVivo = useMemo(() => {
-    const ehParcial =
-      formSituacaoRecebimento === 'Parcial' ||
-      (comissaoTotalCalculada > 0 && valorBaseCalculo < comissaoTotalCalculada)
-
-    if (!ehParcial || comissaoTotalCalculada <= 0) {
-      return calcularDivisaoComissao({
-        valorBase: valorBaseCalculo,
-        formaPagamento: formFormaPagamento,
-        temCaptador: pctCaptador > 0,
-        numCaptadores: formCaptadores.length || (pctCaptador > 0 ? 1 : 0),
-        pctImobConfig: pctImobiliaria,
-        pctCorrConfig: pctCorretor,
-        pctCaptConfig: pctCaptador,
-        aliquotaImposto: 6,
-      })
-    }
-
-    const calcTotal = calcularDivisaoComissao({
+    return calcularDivisaoComissao({
       valorBase: comissaoTotalCalculada,
       formaPagamento: formFormaPagamento,
       temCaptador: pctCaptador > 0,
@@ -188,25 +180,8 @@ export default function Vendas() {
       pctCaptConfig: pctCaptador,
       aliquotaImposto: 6,
     })
-
-    const frac = valorBaseCalculo / comissaoTotalCalculada
-
-    return {
-      ...calcTotal,
-      valorBase: valorBaseCalculo,
-      baseCalculoPartes: calcTotal.baseCalculoPartes * frac,
-      valorImposto: calcTotal.valorImposto * frac,
-      baseImposto: calcTotal.baseImposto * frac,
-      valorImobiliariaLiquido: calcTotal.valorImobiliariaLiquido * frac,
-      valorImobiliariaBruto: calcTotal.valorImobiliariaBruto * frac,
-      valorCorretor: calcTotal.valorCorretor * frac,
-      valorCaptadorTotal: calcTotal.valorCaptadorTotal * frac,
-      valorPorCaptador: calcTotal.valorPorCaptador * frac,
-    }
   }, [
-    valorBaseCalculo,
     comissaoTotalCalculada,
-    formSituacaoRecebimento,
     formFormaPagamento,
     pctImobiliaria,
     pctCorretor,
@@ -228,9 +203,11 @@ export default function Vendas() {
         // Status
         if (statusFilter !== 'todos' && v.status !== statusFilter) return false
 
-        // Situação do Recebimento
+        // Situação do Recebimento (derivada ou do banco)
         if (recebimentoFilter !== 'todos') {
-          const sit = v.situacao_recebimento || 'Recebido'
+          const prev = round2(v.valor_previsto_imobiliaria ?? v.valor_comissao)
+          const rec = round2(v.valor_recebido || 0)
+          const sit = rec >= prev && prev > 0 ? 'Recebida' : rec > 0 ? 'Parcial' : 'A Receber'
           if (sit !== recebimentoFilter) return false
         }
 
@@ -246,7 +223,8 @@ export default function Vendas() {
           const matchTitulo = v.titulo_imovel.toLowerCase().includes(term)
           const matchCliente = v.cliente?.toLowerCase().includes(term)
           const matchCorretor = v.expand?.corretor?.nome?.toLowerCase().includes(term)
-          return matchTitulo || matchCliente || matchCorretor
+          const matchCodigo = v.codigo_referencia?.toLowerCase().includes(term)
+          return matchTitulo || matchCliente || matchCorretor || matchCodigo
         }
         return true
       })
@@ -271,6 +249,33 @@ export default function Vendas() {
     sortField,
     sortDirection,
   ])
+
+  // Conferência Rápida do período selecionado
+  const resumoPeriodo = useMemo(() => {
+    let previstoTotal = 0
+    let recebidoTotal = 0
+    let vgvTotal = 0
+
+    filteredVendas.forEach((v) => {
+      if (v.status !== 'cancelada') {
+        const prev = round2(v.valor_previsto_imobiliaria ?? v.valor_comissao)
+        const rec = round2(v.valor_recebido || 0)
+        previstoTotal += prev
+        recebidoTotal += rec
+        vgvTotal += v.valor_vgv || 0
+      }
+    })
+
+    const saldoTotal = Math.max(0, round2(previstoTotal - recebidoTotal))
+
+    return {
+      previstoTotal: round2(previstoTotal),
+      recebidoTotal: round2(recebidoTotal),
+      saldoTotal,
+      vgvTotal: round2(vgvTotal),
+      qtd: filteredVendas.length,
+    }
+  }, [filteredVendas])
 
   const formatCurrency = (val: number) => {
     return (
@@ -381,8 +386,9 @@ export default function Vendas() {
     setShowSecondCorretor(false)
     setShowSecondCaptador(false)
 
-    setFormSituacaoRecebimento('Recebido')
-    setFormValorRecebido('')
+    setTemRecebimentoInicial(false)
+    setFormValorRecebidoInicial('')
+    setFormDataRecebimentoInicial(todayIso)
     setFormStatus('realizada')
     setFormErrors({})
     setIsModalOpen(true)
@@ -436,12 +442,70 @@ export default function Vendas() {
     setPctCorretor(40)
     setPctCaptador(10)
 
-    const sit = venda.situacao_recebimento || 'Recebido'
-    setFormSituacaoRecebimento(sit)
-    setFormValorRecebido(venda.valor_recebido ?? (sit === 'Recebido' ? venda.valor_comissao : ''))
+    setTemRecebimentoInicial(false)
+    setFormValorRecebidoInicial('')
+    setFormDataRecebimentoInicial(new Date().toISOString().split('T')[0])
     setFormStatus(venda.status)
     setFormErrors({})
     setIsModalOpen(true)
+  }
+
+  // Abrir Modal de Registrar Recebimento
+  const handleOpenRecebimentoModal = (venda: Venda) => {
+    setSelectedVendaParaRecebimento(venda)
+    const previsto = round2(venda.valor_previsto_imobiliaria ?? venda.valor_comissao)
+    const saldo = Math.max(0, round2(previsto - (venda.valor_recebido || 0)))
+    setRecComplementarValor(saldo > 0 ? saldo : '')
+    setRecComplementarData(new Date().toISOString().split('T')[0])
+    setIsRecebimentoModalOpen(true)
+  }
+
+  // Salvar Recebimento Complementar
+  const handleConfirmRecebimentoComplementar = async () => {
+    if (
+      !selectedVendaParaRecebimento ||
+      !recComplementarValor ||
+      Number(recComplementarValor) <= 0 ||
+      !user
+    ) {
+      toast.error('Informe um valor válido de recebimento.')
+      return
+    }
+
+    setSavingRecebimento(true)
+    try {
+      await VendaService.registrarRecebimentoVenda({
+        vendaId: selectedVendaParaRecebimento.id,
+        valor: Number(recComplementarValor),
+        dataRecebimento: recComplementarData,
+        userId: user.id,
+        origem: 'manual',
+      })
+
+      toast.success('Recebimento registrado com sucesso! Saldo e fluxo atualizados.')
+      setIsRecebimentoModalOpen(false)
+      loadData()
+    } catch (err: any) {
+      console.error(err)
+      toast.error(err?.message || 'Erro ao registrar recebimento.')
+    } finally {
+      setSavingRecebimento(false)
+    }
+  }
+
+  // Abrir Detalhes da Venda
+  const handleOpenDetalhesModal = async (venda: Venda) => {
+    setDetalhesVenda(venda)
+    setIsDetalhesModalOpen(true)
+    setLoadingDetalhes(true)
+    try {
+      const trans = await TransacaoService.getAll(`venda = "${venda.id}"`)
+      setDetalhesTransacoes(trans)
+    } catch (e) {
+      console.warn('Erro ao carregar transações da venda:', e)
+    } finally {
+      setLoadingDetalhes(false)
+    }
   }
 
   const validateForm = () => {
@@ -461,12 +525,11 @@ export default function Vendas() {
       }
     }
 
-    if (formSituacaoRecebimento === 'Parcial') {
-      if (formValorRecebido === '' || Number(formValorRecebido) <= 0) {
-        errs.valorRecebido = 'Informe o valor efetivamente recebido nesta etapa'
-      } else if (Number(formValorRecebido) > comissaoTotalCalculada) {
-        errs.valorRecebido = 'O valor recebido não pode ser maior que a comissão total'
-      }
+    if (
+      temRecebimentoInicial &&
+      (!formValorRecebidoInicial || Number(formValorRecebidoInicial) <= 0)
+    ) {
+      errs.valorRecebidoInicial = 'Informe o valor do recebimento inicial'
     }
 
     setFormErrors(errs)
@@ -485,7 +548,6 @@ export default function Vendas() {
         Date.UTC(Number(anoComp), Number(mesComp) - 1, 1, 12, 0, 0),
       ).toISOString()
 
-      // Data de recebimento
       const dataRecebimentoIso = formDataRecebimento
         ? new Date(formDataRecebimento + 'T12:00:00.000Z').toISOString()
         : dataCompetenciaIso
@@ -493,8 +555,6 @@ export default function Vendas() {
       const finalVgv = modoCalculo === '%_vgv' ? Number(formVgv) : Number(formVgv || 0)
       const finalPct = modoCalculo === '%_vgv' ? Number(formPctNegociacao) : 0
       const finalValorComissao = comissaoTotalCalculada
-      const valRecFinal =
-        formSituacaoRecebimento === 'Recebido' ? finalValorComissao : Number(formValorRecebido)
 
       // Montar lista de captadores
       const finalCaptadores = formCaptadores.filter(Boolean)
@@ -515,8 +575,6 @@ export default function Vendas() {
             data_recebimento: dataRecebimentoIso,
             is_valor_fixo: modoCalculo === 'valor_fixo',
             forma_pagamento: formFormaPagamento,
-            situacao_recebimento: formSituacaoRecebimento,
-            valor_recebido: valRecFinal,
             data_venda: dataCompetenciaIso,
             status: formStatus,
             pct_imobiliaria: pctImobiliaria,
@@ -526,7 +584,6 @@ export default function Vendas() {
           user.id,
         )
 
-        // Atualização otimista imediata no estado local
         const corretorObj = corretores.find((c) => c.id === formCorretorPrincipal)
         const captadoresObjs = finalCaptadores
           .map((cid) => corretores.find((c) => c.id === cid))
@@ -549,8 +606,18 @@ export default function Vendas() {
           ),
         )
 
-        toast.success('Entrada atualizada com sucesso!')
+        toast.success('Venda atualizada com sucesso!')
       } else {
+        const recebimentoInicialPayload =
+          temRecebimentoInicial && Number(formValorRecebidoInicial) > 0
+            ? {
+                valor: Number(formValorRecebidoInicial),
+                data: formDataRecebimentoInicial
+                  ? new Date(formDataRecebimentoInicial + 'T12:00:00.000Z').toISOString()
+                  : dataRecebimentoIso,
+              }
+            : undefined
+
         const created = await VendaService.create({
           titulo_imovel: formTitulo,
           cliente: formCliente,
@@ -567,11 +634,10 @@ export default function Vendas() {
           pct_corretor: pctCorretor,
           pct_captador: pctCaptador,
           forma_pagamento: formFormaPagamento,
-          situacao_recebimento: formSituacaoRecebimento,
-          valor_recebido: valRecFinal,
           data_venda: dataCompetenciaIso,
           status: formStatus,
           userId: user.id,
+          recebimento_inicial: recebimentoInicialPayload,
         })
 
         const corretorObj = corretores.find((c) => c.id === formCorretorPrincipal)
@@ -592,14 +658,14 @@ export default function Vendas() {
           ...prev,
         ])
 
-        toast.success('Entrada cadastrada e fluxos financeiros gerados com sucesso!')
+        toast.success('Venda cadastrada com sucesso! Previsões e comissões registradas.')
       }
       setIsModalOpen(false)
       setEditingVenda(null)
       loadData()
     } catch (err: any) {
       console.error(err)
-      toast.error(err?.message || 'Erro ao salvar entrada.')
+      toast.error(err?.message || 'Erro ao salvar venda.')
     } finally {
       setSaving(false)
     }
@@ -1642,56 +1708,87 @@ export default function Vendas() {
                 )}
               </div>
 
-              {/* Situação do Recebimento & Status */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    SITUAÇÃO DO RECEBIMENTO
-                  </label>
-                  <select
-                    value={formSituacaoRecebimento}
-                    onChange={(e) =>
-                      setFormSituacaoRecebimento(e.target.value as SituacaoRecebimento)
-                    }
-                    className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
-                  >
-                    <option value="Recebido">Recebido Total</option>
-                    <option value="Parcial">Parcial (Recebeu parte)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                    STATUS
-                  </label>
-                  <select
-                    value={formStatus}
-                    onChange={(e) => setFormStatus(e.target.value as VendaStatus)}
-                    className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
-                  >
-                    <option value="realizada">Realizada</option>
-                    <option value="pendente">Pendente</option>
-                    <option value="cancelada">Cancelada</option>
-                  </select>
-                </div>
+              {/* Status da Venda */}
+              <div className="pt-1">
+                <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                  STATUS DA NEGOCIAÇÃO
+                </label>
+                <select
+                  value={formStatus}
+                  onChange={(e) => setFormStatus(e.target.value as VendaStatus)}
+                  className="w-full bg-[#0B0E14] border border-[#232A3B] text-slate-100 text-xs rounded-lg h-9 px-2.5 outline-none focus:border-[#E63946]"
+                >
+                  <option value="realizada">Realizada</option>
+                  <option value="pendente">Pendente</option>
+                  <option value="cancelada">Cancelada</option>
+                </select>
               </div>
 
-              {formSituacaoRecebimento === 'Parcial' && (
-                <div>
-                  <label className="block text-[11px] font-bold uppercase tracking-wider text-amber-400 mb-1">
-                    VALOR RECEBIDO NESTA ETAPA (R$) *
-                  </label>
-                  <Input
-                    type="number"
-                    placeholder="Ex: 10000"
-                    value={formValorRecebido}
-                    onChange={(e) =>
-                      setFormValorRecebido(e.target.value ? Number(e.target.value) : '')
-                    }
-                    className="bg-[#0B0E14] border-amber-500/50 text-xs h-9 text-white font-bold"
-                  />
-                  {formErrors.valorRecebido && (
-                    <p className="text-[10px] text-red-400 mt-0.5">{formErrors.valorRecebido}</p>
+              {/* Recebimento Inicial (Opcional - Estilo UAU/Imoview) */}
+              {!editingVenda && (
+                <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-bold text-white block">
+                        Recebimento Inicial Vinculado?
+                      </span>
+                      <span className="text-[11px] text-slate-400 block">
+                        Esta venda já tem uma entrada que caiu na conta agora?
+                      </span>
+                    </div>
+                    <label className="relative inline-flex items-center cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={temRecebimentoInicial}
+                        onChange={(e) => {
+                          const checked = e.target.checked
+                          setTemRecebimentoInicial(checked)
+                          if (checked && formValorRecebidoInicial === '') {
+                            // Sugerir previsto da imobiliária líquido
+                            setFormValorRecebidoInicial(divisaoAoVivo.valorImobiliariaLiquido || '')
+                          }
+                        }}
+                        className="sr-only peer"
+                      />
+                      <div className="w-9 h-5 bg-[#232A3B] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                    </label>
+                  </div>
+
+                  {temRecebimentoInicial && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#232A3B]/60">
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1">
+                          VALOR RECEBIDO (R$) *
+                        </label>
+                        <Input
+                          type="number"
+                          placeholder="Ex: 3525.00"
+                          value={formValorRecebidoInicial}
+                          onChange={(e) =>
+                            setFormValorRecebidoInicial(
+                              e.target.value ? Number(e.target.value) : '',
+                            )
+                          }
+                          className="bg-[#121722] border-emerald-500/50 text-xs h-9 text-white font-bold"
+                        />
+                        {formErrors.valorRecebidoInicial && (
+                          <p className="text-[10px] text-red-400 mt-0.5">
+                            {formErrors.valorRecebidoInicial}
+                          </p>
+                        )}
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                          DATA DO RECEBIMENTO
+                        </label>
+                        <Input
+                          type="date"
+                          value={formDataRecebimentoInicial}
+                          onChange={(e) => setFormDataRecebimentoInicial(e.target.value)}
+                          className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
               )}

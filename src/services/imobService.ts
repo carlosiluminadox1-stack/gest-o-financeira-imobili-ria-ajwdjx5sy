@@ -155,15 +155,27 @@ export const VendaService = {
     pct_corretor?: number
     pct_captador?: number
     forma_pagamento?: FormaPagamento
-    situacao_recebimento: SituacaoRecebimento
+    situacao_recebimento?: SituacaoRecebimento
     valor_recebido?: number
+    valor_previsto_imobiliaria?: number
     data_venda: string
     status: 'realizada' | 'pendente' | 'cancelada'
     userId?: string
+    recebimento_inicial?: {
+      valor: number
+      data: string
+    }
   }): Promise<Venda> {
     const resolvedUserId = (data.userId || pb.authStore.record?.id || '').trim()
     if (!resolvedUserId) {
       throw new Error('Usuário não autenticado')
+    }
+
+    let config: Configuracoes | null = null
+    try {
+      config = await ConfigService.getForUser(resolvedUserId)
+    } catch {
+      /* ignore */
     }
 
     const valor_vgv =
@@ -184,7 +196,6 @@ export const VendaService = {
       percentual_comissao = valor_vgv > 0 ? (valor_comissao / valor_vgv) * 100 : 0
     }
 
-    const situacao = data.situacao_recebimento || 'Recebido'
     const forma = data.forma_pagamento || 'Centralizada'
 
     // Normalizar captadores
@@ -196,20 +207,46 @@ export const VendaService = {
           : []
     const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : undefined
 
-    // No modo Separada, o valor que entra na conta da imobiliária é a cota da imobiliária
-    let valorRecebido = round2(
-      situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao),
+    // Cálculo da divisão total prevista (previsto da imobiliária líquido de imposto)
+    const pctImobConfig = data.pct_imobiliaria ?? config?.percentual_imobiliaria ?? 50
+    const pctCorrConfig =
+      data.pct_corretor ??
+      (captadoresList.length > 0 ? (config?.percentual_corretor ?? 40) : 100 - pctImobConfig)
+    const pctCaptConfig =
+      data.pct_captador ?? (captadoresList.length > 0 ? (config?.percentual_captador ?? 10) : 0)
+
+    const divisaoPrevista = calcularDivisaoComissao({
+      valorBase: valor_comissao,
+      formaPagamento: forma,
+      temCaptador: captadoresList.length > 0,
+      numCaptadores: captadoresList.length,
+      pctImobConfig,
+      pctCorrConfig,
+      pctCaptConfig,
+      aliquotaImposto: 6,
+    })
+
+    // O valor previsto a receber pela imobiliária é seu líquido após o imposto de 6%
+    const valorPrevistoImob = round2(
+      data.valor_previsto_imobiliaria ?? divisaoPrevista.valorImobiliariaLiquido,
     )
-    if (forma === 'Separada') {
-      const pctImobConfig = data.pct_imobiliaria ?? 50
-      const cotaImobBrutaTotal = round2((valor_comissao * pctImobConfig) / 100)
-      if (situacao === 'Recebido') {
-        valorRecebido = cotaImobBrutaTotal
-      } else {
-        // Se já foi informado um valor recebido específico (ex: parcela da imobiliária ou proporcional)
-        valorRecebido = round2(Number(data.valor_recebido ?? cotaImobBrutaTotal))
-      }
-    }
+
+    // Recebimento inicial (se fornecido via prop direta ou recebimento_inicial)
+    const valorRecebidoInicial = round2(
+      data.recebimento_inicial && data.recebimento_inicial.valor > 0
+        ? data.recebimento_inicial.valor
+        : Number(data.valor_recebido || 0),
+    )
+    const dataRecebimentoInicial =
+      data.recebimento_inicial?.data || data.data_recebimento || data.data_venda
+
+    // Situação DERIVADA (sem digitação manual)
+    const situacaoDerivada: SituacaoRecebimento =
+      valorRecebidoInicial >= valorPrevistoImob && valorPrevistoImob > 0
+        ? 'Recebida'
+        : valorRecebidoInicial > 0
+          ? 'Parcial'
+          : 'A Receber'
 
     // Gerar código único de referência da negociação sequencial por ano: VENDA-{ano}-XXXX
     let codigo_referencia = ''
@@ -229,11 +266,15 @@ export const VendaService = {
       titulo_imovel: data.titulo_imovel,
       cliente: data.cliente || '',
       tipo_venda: data.tipo_venda || 'venda',
-      data_recebimento: data.data_recebimento || data.data_venda,
+      data_recebimento: dataRecebimentoInicial,
       is_valor_fixo: Boolean(data.is_valor_fixo),
       forma_pagamento: forma,
-      situacao_recebimento: situacao,
-      valor_recebido: valorRecebido,
+      situacao_recebimento: situacaoDerivada,
+      valor_recebido: valorRecebidoInicial,
+      valor_previsto_imobiliaria: valorPrevistoImob,
+      pct_imobiliaria: pctImobConfig,
+      pct_corretor: pctCorrConfig,
+      pct_captador: pctCaptConfig,
       data_venda: data.data_venda,
       status: data.status,
       user: resolvedUserId,
@@ -257,26 +298,141 @@ export const VendaService = {
 
     const record = await pb.collection('vendas').create<Venda>(createPayload)
 
-    // Processar financeiro se realizada ou com valor recebido > 0
-    if (data.status === 'realizada' && valorRecebido > 0) {
-      await this.processarRecebimentoVenda({
-        vendaId: record.id,
-        tituloImovel: data.titulo_imovel,
-        clienteNome: data.cliente,
-        corretorId: data.corretor,
-        captadorId: primaryCaptador,
-        captadoresIds: captadoresList,
-        formaPagamento: forma,
-        valorBase: valorRecebido,
-        valorTotalComissao: valor_comissao,
-        pctImob: data.pct_imobiliaria,
-        pctCorr: data.pct_corretor,
-        pctCapt: data.pct_captador,
-        dataVenda: data.data_recebimento || data.data_venda,
-        dataCompetencia: data.data_venda,
-        userId: resolvedUserId,
-        ehComplementar: false,
+    // Criar comissões previstas (status pendente / a pagar) para corretor e captadores
+    // e comissão imobiliária (prevista / a receber se não recebida)
+    try {
+      // 1. Comissão imobiliária
+      await pb.collection('comissoes').create({
+        venda: record.id,
+        parte: 'imobiliaria',
+        percentual: divisaoPrevista.pctImobiliaria,
+        valor: divisaoPrevista.valorImobiliariaLiquido,
+        status: valorRecebidoInicial >= valorPrevistoImob ? 'recebida' : 'pendente',
+        data_recebimento: valorRecebidoInicial > 0 ? dataRecebimentoInicial : undefined,
+        user: resolvedUserId,
       })
+
+      // 2. Comissão Corretor (a pagar / pendente)
+      if (divisaoPrevista.valorCorretor > 0 && data.corretor) {
+        await pb.collection('comissoes').create({
+          venda: record.id,
+          parte: 'corretor',
+          corretor: data.corretor,
+          percentual: divisaoPrevista.pctCorretor,
+          valor: divisaoPrevista.valorCorretor,
+          status: 'pendente',
+          user: resolvedUserId,
+        })
+      }
+
+      // 3. Comissão Captador (a pagar / pendente)
+      if (divisaoPrevista.valorCaptadorTotal > 0 && captadoresList.length > 0) {
+        for (const cId of captadoresList) {
+          await pb.collection('comissoes').create({
+            venda: record.id,
+            parte: 'captador',
+            corretor: cId,
+            percentual: divisaoPrevista.pctPorCaptador,
+            valor: divisaoPrevista.valorPorCaptador,
+            status: 'pendente',
+            user: resolvedUserId,
+          })
+        }
+      }
+    } catch (errCom) {
+      console.warn('Erro ao registrar comissões previstas:', errCom)
+    }
+
+    // Se houver recebimento inicial (ou se a venda for realizada com valor inicial > 0)
+    // criar transação de entrada e saídas de caixa correspondentes à regra
+    if (valorRecebidoInicial > 0) {
+      const tagForma = forma === 'Separada' ? ' [Separada]' : ' [Centralizada]'
+      const codRef = codigo_referencia ? ` [${codigo_referencia}]` : ''
+
+      // No modo Separada, entra só a parte da imobiliária (valorRecebidoInicial);
+      // No modo Centralizada, se foi informado o valor recebido inicial, registra esse valor
+      await pb.collection('transacoes').create({
+        tipo: 'entrada',
+        descricao: `Recebimento inicial de comissão${codRef} - ${data.titulo_imovel}${tagForma}`,
+        categoria: 'comissao',
+        valor: valorRecebidoInicial,
+        data: dataRecebimentoInicial,
+        data_competencia: data.data_venda,
+        data_vencimento: dataRecebimentoInicial,
+        status: 'Pago',
+        consolidado: true,
+        venda: record.id,
+        user: resolvedUserId,
+      })
+
+      // Se modo Centralizada, gerar também saídas de repasse pendentes no caixa
+      if (forma === 'Centralizada') {
+        let corretorNome = 'Corretor'
+        if (data.corretor) {
+          try {
+            const cRec = await pb.collection('corretores').getOne<Corretor>(data.corretor)
+            corretorNome = cRec.nome
+          } catch {
+            /* ignore */
+          }
+        }
+        if (divisaoPrevista.valorCorretor > 0) {
+          await pb.collection('transacoes').create({
+            tipo: 'saida',
+            descricao: `Repasse comissão corretor (${corretorNome}) [Centralizada]${codRef} - ${data.titulo_imovel}`,
+            categoria: 'repasse',
+            valor: divisaoPrevista.valorCorretor,
+            data: dataRecebimentoInicial,
+            data_competencia: data.data_venda,
+            data_vencimento: dataRecebimentoInicial,
+            status: 'Pendente',
+            consolidado: false,
+            venda: record.id,
+            user: resolvedUserId,
+          })
+        }
+        if (divisaoPrevista.valorCaptadorTotal > 0 && captadoresList.length > 0) {
+          for (const cId of captadoresList) {
+            let captNome = 'Captador'
+            try {
+              const captRec = await pb.collection('corretores').getOne<Corretor>(cId)
+              captNome = captRec.nome
+            } catch {
+              /* ignore */
+            }
+            await pb.collection('transacoes').create({
+              tipo: 'saida',
+              descricao: `Repasse comissão captador (${captNome}) [Centralizada]${codRef} - ${data.titulo_imovel}`,
+              categoria: 'repasse',
+              valor: divisaoPrevista.valorPorCaptador,
+              data: dataRecebimentoInicial,
+              data_competencia: data.data_venda,
+              data_vencimento: dataRecebimentoInicial,
+              status: 'Pendente',
+              consolidado: false,
+              venda: record.id,
+              user: resolvedUserId,
+            })
+          }
+        }
+      }
+
+      // Gerar saída de imposto (6% sobre a parte da imobiliária) no fluxo
+      if (divisaoPrevista.valorImposto > 0) {
+        await pb.collection('transacoes').create({
+          tipo: 'saida',
+          descricao: `Imposto Simples Nacional (6% s/ parte Imob)${codRef} - ${data.titulo_imovel}`,
+          categoria: 'imposto',
+          valor: divisaoPrevista.valorImposto,
+          data: dataRecebimentoInicial,
+          data_competencia: data.data_venda,
+          data_vencimento: dataRecebimentoInicial,
+          status: 'Pendente',
+          consolidado: false,
+          venda: record.id,
+          user: resolvedUserId,
+        })
+      }
     }
 
     return record
@@ -310,18 +466,25 @@ export const VendaService = {
     )
 
     const forma = data.forma_pagamento ?? prev.forma_pagamento ?? 'Centralizada'
-    const situacao = data.situacao_recebimento ?? prev.situacao_recebimento ?? 'Recebido'
-    let novoValorRecebido = round2(
-      situacao === 'Recebido'
-        ? valor_comissao
-        : Number(data.valor_recebido ?? prev.valor_recebido ?? valor_comissao),
+    const valorPrevistoImob = round2(
+      data.valor_previsto_imobiliaria ?? prev.valor_previsto_imobiliaria ?? valor_comissao,
     )
 
-    const prevValorRecebido = round2(
-      Number(
-        prev.valor_recebido ?? (prev.situacao_recebimento === 'Parcial' ? 0 : prev.valor_comissao),
-      ),
+    let novoValorRecebido = round2(
+      data.valor_recebido !== undefined
+        ? Number(data.valor_recebido)
+        : Number(prev.valor_recebido ?? 0),
     )
+
+    // Situação derivada automaticamente
+    const situacao: SituacaoRecebimento =
+      novoValorRecebido >= valorPrevistoImob && valorPrevistoImob > 0
+        ? 'Recebida'
+        : novoValorRecebido > 0
+          ? 'Parcial'
+          : 'A Receber'
+
+    const prevValorRecebido = round2(Number(prev.valor_recebido ?? 0))
     const diferencaRecebida = round2(novoValorRecebido - prevValorRecebido)
 
     let captadoresList: string[] = []
@@ -645,45 +808,150 @@ export const VendaService = {
       })
     }
 
-    // 5. Registrar também em comissoes para histórico e relatórios de comissão
-    // Imobiliária (registra valor líquido que restou para a imobiliária)
-    await pb.collection('comissoes').create({
-      venda: vendaId,
-      parte: 'imobiliaria',
-      percentual: calc.pctImobiliaria,
-      valor: round2(valImobTotal),
-      status: 'recebida',
+    // 5. Registrar também em comissoes para histórico e relatórios de comissão (se ainda não existirem para esta venda)
+    try {
+      const comissoesExistentes = await pb.collection('comissoes').getFullList<Comissao>({
+        filter: `venda = "${vendaId}"`,
+      })
+      if (comissoesExistentes.length === 0) {
+        // Imobiliária (registra valor líquido que restou para a imobiliária)
+        await pb.collection('comissoes').create({
+          venda: vendaId,
+          parte: 'imobiliaria',
+          percentual: calc.pctImobiliaria,
+          valor: round2(valImobTotal),
+          status: 'recebida',
+          data_recebimento: dataIso,
+          user: userId,
+        })
+
+        // Corretor
+        if (valCorr > 0) {
+          await pb.collection('comissoes').create({
+            venda: vendaId,
+            parte: 'corretor',
+            corretor: corretorId,
+            percentual: calc.pctCorretor,
+            valor: round2(valCorr),
+            status: 'pendente',
+            user: userId,
+          })
+        }
+
+        // Captadores (lançamento individual para cada corretor captador)
+        if (hasCaptador && valCaptTotal > 0) {
+          for (const cId of captadores) {
+            await pb.collection('comissoes').create({
+              venda: vendaId,
+              parte: 'captador',
+              corretor: cId,
+              percentual: pctPorCaptador,
+              valor: round2(valPorCaptador),
+              status: 'pendente',
+              user: userId,
+            })
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao verificar/criar comissões no recebimento complementar:', e)
+    }
+  },
+
+  // Registrar recebimento complementar ou direto na tela de Vendas
+  async registrarRecebimentoVenda(params: {
+    vendaId: string
+    valor: number
+    dataRecebimento?: string
+    userId: string
+    origem?: 'manual' | 'extrato'
+  }): Promise<Venda> {
+    const { vendaId, valor, dataRecebimento, userId } = params
+    const v = await pb.collection('vendas').getOne<Venda>(vendaId)
+
+    const dataIso = dataRecebimento
+      ? dataRecebimento.includes('T')
+        ? dataRecebimento
+        : new Date(dataRecebimento + 'T12:00:00Z').toISOString()
+      : new Date().toISOString()
+
+    const novoValorRecebido = round2((v.valor_recebido || 0) + valor)
+    const valorPrevisto = v.valor_previsto_imobiliaria ?? v.valor_comissao
+    const novaSituacao: SituacaoRecebimento =
+      novoValorRecebido >= valorPrevisto
+        ? 'Recebida'
+        : novoValorRecebido > 0
+          ? 'Parcial'
+          : 'A Receber'
+
+    // Atualizar venda
+    const updated = await pb.collection('vendas').update<Venda>(vendaId, {
+      valor_recebido: novoValorRecebido,
+      situacao_recebimento: novaSituacao,
       data_recebimento: dataIso,
+    })
+
+    // Criar entrada no fluxo de caixa (transacao)
+    const tagForma = v.forma_pagamento === 'Separada' ? ' [Separada]' : ' [Centralizada]'
+    const codRef = v.codigo_referencia ? ` [${v.codigo_referencia}]` : ''
+    await pb.collection('transacoes').create({
+      tipo: 'entrada',
+      descricao: `Recebimento de venda${codRef} - ${v.titulo_imovel}${tagForma}`,
+      categoria: 'comissao',
+      valor: round2(valor),
+      data: dataIso,
+      data_competencia: v.data_venda || dataIso,
+      data_vencimento: dataIso,
+      status: 'Pago',
+      consolidado: true,
+      venda: vendaId,
       user: userId,
     })
 
-    // Corretor
-    if (valCorr > 0) {
-      await pb.collection('comissoes').create({
-        venda: vendaId,
-        parte: 'corretor',
-        corretor: corretorId,
-        percentual: calc.pctCorretor,
-        valor: round2(valCorr),
-        status: 'pendente',
-        user: userId,
-      })
-    }
+    return updated
+  },
 
-    // Captadores (lançamento individual para cada corretor captador)
-    if (hasCaptador && valCaptTotal > 0) {
-      for (const cId of captadores) {
-        await pb.collection('comissoes').create({
-          venda: vendaId,
-          parte: 'captador',
-          corretor: cId,
-          percentual: pctPorCaptador,
-          valor: round2(valPorCaptador),
-          status: 'pendente',
-          user: userId,
-        })
-      }
-    }
+  // Vincular uma transação de entrada existente (ex: importada do extrato) a uma venda
+  async vincularTransacaoAVenda(params: {
+    transacaoId: string
+    vendaId: string
+    userId: string
+  }): Promise<{ venda: Venda; transacao: Transacao }> {
+    const { transacaoId, vendaId, userId } = params
+    const [transacao, venda] = await Promise.all([
+      pb.collection('transacoes').getOne<Transacao>(transacaoId),
+      pb.collection('vendas').getOne<Venda>(vendaId),
+    ])
+
+    const valorEntrada = round2(transacao.valor)
+    const novoValorRecebido = round2((venda.valor_recebido || 0) + valorEntrada)
+    const valorPrevisto = venda.valor_previsto_imobiliaria ?? venda.valor_comissao
+    const novaSituacao: SituacaoRecebimento =
+      novoValorRecebido >= valorPrevisto
+        ? 'Recebida'
+        : novoValorRecebido > 0
+          ? 'Parcial'
+          : 'A Receber'
+
+    // 1. Atualizar a venda com o novo valor_recebido e situação derivada
+    const updatedVenda = await pb.collection('vendas').update<Venda>(vendaId, {
+      valor_recebido: novoValorRecebido,
+      situacao_recebimento: novaSituacao,
+      data_recebimento: transacao.data || venda.data_recebimento,
+    })
+
+    // 2. Atualizar a transação vinculando à venda e ajustando descrição/categoria
+    const codRef = venda.codigo_referencia ? ` [${venda.codigo_referencia}]` : ''
+    const updatedTransacao = await pb.collection('transacoes').update<Transacao>(transacaoId, {
+      venda: vendaId,
+      categoria: 'comissao',
+      descricao: `${transacao.descricao}${codRef}`,
+      consolidado: true,
+      status: 'Pago',
+      user: transacao.user || userId,
+    })
+
+    return { venda: updatedVenda, transacao: updatedTransacao }
   },
 }
 

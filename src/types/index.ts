@@ -22,7 +22,8 @@ export interface Corretor {
 }
 
 export type VendaStatus = 'realizada' | 'pendente' | 'cancelada'
-export type SituacaoRecebimento = 'Recebido' | 'Parcial'
+export type SituacaoRecebimento = 'A Receber' | 'Parcial' | 'Recebida' | 'Recebido'
+
 export type FormaPagamento = 'Centralizada' | 'Separada'
 export type TipoVenda = 'venda' | 'locacao' | 'administracao'
 
@@ -42,6 +43,7 @@ export interface Venda {
   forma_pagamento?: FormaPagamento
   situacao_recebimento?: SituacaoRecebimento
   valor_recebido?: number
+  valor_previsto_imobiliaria?: number
   data_venda: string
   status: VendaStatus
   user: string
