@@ -185,8 +185,6 @@ export const VendaService = {
 
     const situacao = data.situacao_recebimento || 'Recebido'
     const forma = data.forma_pagamento || 'Centralizada'
-    const valorRecebido =
-      situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao)
 
     // Normalizar captadores
     const captadoresList =
@@ -196,6 +194,33 @@ export const VendaService = {
           ? [data.captador.trim()]
           : []
     const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : undefined
+
+    // No modo Separada, o valor que entra na conta da imobiliária é a cota da imobiliária
+    let valorRecebido =
+      situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao)
+    if (forma === 'Separada') {
+      const pctImobConfig = data.pct_imobiliaria ?? 50
+      const cotaImobBrutaTotal = (valor_comissao * pctImobConfig) / 100
+      if (situacao === 'Recebido') {
+        valorRecebido = cotaImobBrutaTotal
+      } else {
+        // Se já foi informado um valor recebido específico (ex: parcela da imobiliária ou proporcional)
+        valorRecebido = Number(data.valor_recebido ?? cotaImobBrutaTotal)
+      }
+    }
+
+    // Gerar código único de referência da negociação sequencial por ano: VENDA-{ano}-XXXX
+    let codigo_referencia = ''
+    try {
+      const anoVenda = (data.data_venda || new Date().toISOString()).substring(0, 4)
+      const countResult = await pb.collection('vendas').getList(1, 1, {
+        filter: `codigo_referencia ~ "VENDA-${anoVenda}-"`,
+      })
+      const nextSeq = (countResult.totalItems + 1).toString().padStart(4, '0')
+      codigo_referencia = `VENDA-${anoVenda}-${nextSeq}`
+    } catch (e) {
+      console.warn('Erro ao gerar codigo_referencia da venda:', e)
+    }
 
     // Não enviar string vazia "" em relações opcionais: omitir o campo (undefined) quando vazio
     const createPayload: Record<string, unknown> = {
@@ -212,6 +237,7 @@ export const VendaService = {
       user: resolvedUserId,
       valor_comissao,
       percentual_comissao,
+      codigo_referencia: codigo_referencia || undefined,
     }
 
     if (data.corretor && data.corretor.trim().length > 0) {
@@ -531,13 +557,17 @@ export const VendaService = {
       /* intentionally ignored */
     }
 
-    // 1. Criar UMA transação de Entrada (categoria "comissao") com o valor recebido
+    // 1. Criar transação de Entrada (categoria "comissao")
+    // MODO SEPARADA: ENTRA APENAS a parte da imobiliária (calc.valorImobiliariaBruto)
+    // MODO CENTRALIZADA: ENTRA a comissão bruta total recebida (valorBase)
+    const valorEntradaCaixa = formaPagamento === 'Separada' ? calc.valorImobiliariaBruto : valorBase
+
     const tagForma = formaPagamento === 'Separada' ? ' [Separada]' : ' [Centralizada]'
     await pb.collection('transacoes').create({
       tipo: 'entrada',
       descricao: `${prefixoDesc} - ${tituloImovel}${tagForma}`,
       categoria: 'comissao',
-      valor: valorBase,
+      valor: valorEntradaCaixa,
       data: dataIso,
       data_competencia: dataCompetencia || dataIso,
       data_vencimento: dataIso,
@@ -546,12 +576,12 @@ export const VendaService = {
       user: userId,
     })
 
-    // 2. Gerar Saída Pendente para Corretor (% integral sem imposto; proporcional à fração recebida se parcial)
-    if (valCorr > 0) {
-      const detalheForma = formaPagamento === 'Centralizada' ? ' [Centralizada]' : ' [Separada]'
+    // 2. Gerar Saída Pendente para Corretor SOMENTE no modo Centralizada!
+    // No modo Separada, o corretor recebe direto do cliente — NÃO gera transação no caixa.
+    if (formaPagamento === 'Centralizada' && valCorr > 0) {
       await pb.collection('transacoes').create({
         tipo: 'saida',
-        descricao: `Repasse comissão corretor (${corretorNome})${detalheForma} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+        descricao: `Repasse comissão corretor (${corretorNome}) [Centralizada] - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
         categoria: 'repasse',
         valor: valCorr,
         data: dataIso,
@@ -563,17 +593,16 @@ export const VendaService = {
       })
     }
 
-    // 3. Gerar Saída Pendente para cada Captador (% integral rateado entre captadores; proporcional à fração recebida se parcial)
-    if (hasCaptador && valCaptTotal > 0) {
-      const detalheForma = formaPagamento === 'Centralizada' ? ' [Centralizada]' : ' [Separada]'
-
+    // 3. Gerar Saída Pendente para cada Captador SOMENTE no modo Centralizada!
+    // No modo Separada, captadores recebem direto do cliente — NÃO geram transação no caixa.
+    if (formaPagamento === 'Centralizada' && hasCaptador && valCaptTotal > 0) {
       for (const cId of captadores) {
         const nomeCapt = captadoresNomes[cId] || 'Captador'
         const descDivisao = numCaptadores > 1 ? ` (${pctPorCaptador.toFixed(1)}% cada)` : ''
 
         await pb.collection('transacoes').create({
           tipo: 'saida',
-          descricao: `Repasse comissão captador (${nomeCapt})${descDivisao}${detalheForma} - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
+          descricao: `Repasse comissão captador (${nomeCapt})${descDivisao} [Centralizada] - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
           categoria: 'repasse',
           valor: valPorCaptador,
           data: dataIso,
@@ -737,22 +766,33 @@ export const ComissaoService = {
       data_recebimento: todayIso,
     })
 
-    const corretorNome = comissao.expand?.corretor?.nome || 'Corretor'
-    const vendaTitulo = comissao.expand?.venda?.titulo_imovel || 'Imóvel'
-    const roleLabel = comissao.parte === 'captador' ? 'captador' : 'corretor'
+    // 2. AÇÃO 3: NUNCA criar nova transação no fluxo!
+    // Se modo Centralizada e parte !== 'imobiliaria', apenas localizar a transação de repasse
+    // pendente já gerada pela venda e marcá-la como paga/consolidada.
+    const formaPagamento = comissao.expand?.venda?.forma_pagamento || 'Centralizada'
+    if (formaPagamento === 'Centralizada' && comissao.parte !== 'imobiliaria' && comissao.venda) {
+      try {
+        const transacoesVenda = await pb.collection('transacoes').getFullList<Transacao>({
+          filter: `venda = "${comissao.venda}" && categoria = "repasse" && tipo = "saida"`,
+        })
 
-    // 2. Create exit transaction for repasse
-    await pb.collection('transacoes').create({
-      tipo: 'saida',
-      descricao: `Repasse comissão ${roleLabel} (${corretorNome}) - ${vendaTitulo}`,
-      categoria: 'repasse',
-      valor: comissao.valor,
-      data: todayIso,
-      consolidado: false,
-      venda: comissao.venda,
-      comissao: comissao.id,
-      user: userId,
-    })
+        // Encontrar a transação de repasse correspondente com mesmo valor (ou vinculada à comissão)
+        const transacaoCorrespondente = transacoesVenda.find(
+          (t) =>
+            t.comissao === comissao.id || Math.abs(Number(t.valor) - Number(comissao.valor)) < 0.01,
+        )
+
+        if (transacaoCorrespondente) {
+          await pb.collection('transacoes').update(transacaoCorrespondente.id, {
+            status: 'Pago',
+            consolidado: true,
+            comissao: comissao.id,
+          })
+        }
+      } catch (err) {
+        console.warn('Erro ao atualizar transação de repasse correspondente:', err)
+      }
+    }
   },
   async markAsPaid(comissaoId: string): Promise<void> {
     const userId = pb.authStore.record?.id

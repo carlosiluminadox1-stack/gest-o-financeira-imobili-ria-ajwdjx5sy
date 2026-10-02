@@ -929,11 +929,18 @@ export default function Vendas() {
                       />
                     </td>
                     <td className="py-3.5 px-4 max-w-[220px]">
-                      <div
-                        className="font-semibold text-slate-100 truncate"
-                        title={v.titulo_imovel}
-                      >
-                        {v.titulo_imovel}
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {v.codigo_referencia && (
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
+                            {v.codigo_referencia}
+                          </span>
+                        )}
+                        <span
+                          className="font-semibold text-slate-100 truncate"
+                          title={v.titulo_imovel}
+                        >
+                          {v.titulo_imovel}
+                        </span>
                       </div>
                       <div
                         className="text-[11px] text-slate-400 truncate flex items-center gap-1 mt-0.5"
@@ -1049,9 +1056,16 @@ export default function Vendas() {
           {/* Header Fixo */}
           <DialogHeader className="p-4 sm:p-5 pb-3 sm:pb-4 border-b border-[#232A3B]/80 bg-[#121722] shrink-0 text-left">
             <div className="flex items-center justify-between">
-              <DialogTitle className="text-sm sm:text-base font-black text-[#E63946] tracking-wider uppercase">
-                {editingVenda ? 'EDITAR ENTRADA' : 'NOVA ENTRADA'}
-              </DialogTitle>
+              <div className="flex items-center gap-2">
+                <DialogTitle className="text-sm sm:text-base font-black text-[#E63946] tracking-wider uppercase">
+                  {editingVenda ? 'EDITAR ENTRADA' : 'NOVA ENTRADA'}
+                </DialogTitle>
+                {editingVenda?.codigo_referencia && (
+                  <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30">
+                    {editingVenda.codigo_referencia}
+                  </span>
+                )}
+              </div>
             </div>
             <DialogDescription className="text-[11px] sm:text-xs text-slate-400 mt-1 leading-relaxed">
               Preencha os dados da negociação para calcular e dividir a comissão automaticamente.
@@ -1445,13 +1459,19 @@ export default function Vendas() {
                             <div>
                               <span className="text-[10px] text-slate-400 block">Corretor:</span>
                               <span className="font-bold text-white tabular-nums">
-                                {formatCurrency(round2(divisaoAoVivo.valorCorretor * fracao))}
+                                {formFormaPagamento === 'Separada'
+                                  ? 'Direto (sem fluxo)'
+                                  : formatCurrency(round2(divisaoAoVivo.valorCorretor * fracao))}
                               </span>
                             </div>
                             <div>
                               <span className="text-[10px] text-slate-400 block">Captador:</span>
                               <span className="font-bold text-white tabular-nums">
-                                {formatCurrency(round2(divisaoAoVivo.valorCaptadorTotal * fracao))}
+                                {formFormaPagamento === 'Separada'
+                                  ? 'Direto (sem fluxo)'
+                                  : formatCurrency(
+                                      round2(divisaoAoVivo.valorCaptadorTotal * fracao),
+                                    )}
                               </span>
                             </div>
                             <div>

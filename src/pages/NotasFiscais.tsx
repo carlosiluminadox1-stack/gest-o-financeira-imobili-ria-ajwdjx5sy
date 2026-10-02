@@ -297,8 +297,19 @@ export default function NotasFiscais() {
                 <tr key={nf.id} className="hover:bg-[#1A2234]/50 transition-colors">
                   <td className="py-3.5 px-4 font-mono font-bold text-red-400">{nf.numero}</td>
                   <td className="py-3.5 px-4 font-medium text-slate-100">{nf.cliente}</td>
-                  <td className="py-3.5 px-4 text-slate-400 max-w-[200px] truncate">
-                    {nf.expand?.venda?.titulo_imovel || 'Avulsa / Não vinculada'}
+                  <td className="py-3.5 px-4 text-slate-400 max-w-[200px]">
+                    {nf.expand?.venda ? (
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        {nf.expand.venda.codigo_referencia && (
+                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
+                            {nf.expand.venda.codigo_referencia}
+                          </span>
+                        )}
+                        <span className="truncate">{nf.expand.venda.titulo_imovel}</span>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500">Avulsa / Não vinculada</span>
+                    )}
                   </td>
                   <td className="py-3.5 px-4 text-right font-bold text-white tabular-nums">
                     {formatCurrency(nf.valor)}
@@ -403,9 +414,20 @@ export default function NotasFiscais() {
 
                 <div>
                   <span className="text-slate-400 block text-[11px]">Venda Relacionada:</span>
-                  <span className="text-slate-200">
-                    {selectedNota.expand?.venda?.titulo_imovel || 'Serviço Avulso'}
-                  </span>
+                  {selectedNota.expand?.venda ? (
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {selectedNota.expand.venda.codigo_referencia && (
+                        <span className="font-mono text-[11px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
+                          {selectedNota.expand.venda.codigo_referencia}
+                        </span>
+                      )}
+                      <span className="text-slate-200 font-medium">
+                        {selectedNota.expand.venda.titulo_imovel}
+                      </span>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400">Serviço Avulso</span>
+                  )}
                 </div>
 
                 <div>
@@ -490,7 +512,8 @@ export default function NotasFiscais() {
                 <option value="">Nenhuma venda vinculada (Avulsa)</option>
                 {vendas.map((v) => (
                   <option key={v.id} value={v.id}>
-                    {v.titulo_imovel} - {formatCurrency(v.valor_vgv)}
+                    {v.codigo_referencia ? `[${v.codigo_referencia}] ` : ''}
+                    {v.titulo_imovel} — {formatCurrency(v.valor_vgv)}
                   </option>
                 ))}
               </select>

@@ -45,6 +45,7 @@ export interface Venda {
   data_venda: string
   status: VendaStatus
   user: string
+  codigo_referencia?: string
   created: string
   updated: string
   expand?: {

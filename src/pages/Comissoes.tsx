@@ -614,8 +614,15 @@ export default function Comissoes() {
                     )}
                   </td>
                   <td className="py-3.5 px-4 max-w-[200px]">
-                    <div className="font-semibold text-slate-200 truncate">
-                      {c.expand?.venda?.titulo_imovel || 'Imóvel'}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {c.expand?.venda?.codigo_referencia && (
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
+                          {c.expand.venda.codigo_referencia}
+                        </span>
+                      )}
+                      <span className="font-semibold text-slate-200 truncate">
+                        {c.expand?.venda?.titulo_imovel || 'Imóvel'}
+                      </span>
                     </div>
                     <div className="text-[11px] text-slate-400 truncate">
                       {c.expand?.venda?.cliente || 'Cliente'}

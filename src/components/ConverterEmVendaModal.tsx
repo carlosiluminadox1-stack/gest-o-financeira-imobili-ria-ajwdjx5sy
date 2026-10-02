@@ -1393,7 +1393,11 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                     Corretor:
                                   </span>
                                   <span className="font-bold text-white tabular-nums">
-                                    {formatCurrency(round2(divisaoAoVivo.valorCorretor * fracao))}
+                                    {currentPart.formaPagamento === 'Separada'
+                                      ? 'Direto (sem fluxo)'
+                                      : formatCurrency(
+                                          round2(divisaoAoVivo.valorCorretor * fracao),
+                                        )}
                                   </span>
                                 </div>
                                 <div>
@@ -1401,9 +1405,11 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
                                     Captador:
                                   </span>
                                   <span className="font-bold text-white tabular-nums">
-                                    {formatCurrency(
-                                      round2(divisaoAoVivo.valorCaptadorTotal * fracao),
-                                    )}
+                                    {currentPart.formaPagamento === 'Separada'
+                                      ? 'Direto (sem fluxo)'
+                                      : formatCurrency(
+                                          round2(divisaoAoVivo.valorCaptadorTotal * fracao),
+                                        )}
                                   </span>
                                 </div>
                                 <div>
