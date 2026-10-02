@@ -16,13 +16,19 @@ import {
   Calendar,
   CheckSquare,
 } from 'lucide-react'
-import { VendaService, CorretorService, ConfigService } from '@/services/imobService'
+import {
+  VendaService,
+  CorretorService,
+  ConfigService,
+  TransacaoService,
+} from '@/services/imobService'
 import {
   Venda,
   Corretor,
   VendaStatus,
   Configuracoes,
   SituacaoRecebimento,
+  Transacao,
   FormaPagamento,
   TipoVenda,
 } from '@/types'
@@ -560,6 +566,15 @@ export default function Vendas() {
       const finalCaptadores = formCaptadores.filter(Boolean)
 
       if (editingVenda) {
+        const novoValorRecebidoAdicional =
+          temRecebimentoInicial && Number(formValorRecebidoInicial) > 0
+            ? Number(formValorRecebidoInicial)
+            : 0
+
+        const valorRecebidoFinal = round2(
+          (editingVenda.valor_recebido || 0) + novoValorRecebidoAdicional,
+        )
+
         const updated = await VendaService.update(
           editingVenda.id,
           {
@@ -580,9 +595,32 @@ export default function Vendas() {
             pct_imobiliaria: pctImobiliaria,
             pct_corretor: pctCorretor,
             pct_captador: pctCaptador,
+            valor_recebido: valorRecebidoFinal,
           },
           user.id,
         )
+
+        if (novoValorRecebidoAdicional > 0) {
+          const tagForma = formFormaPagamento === 'Separada' ? ' [Separada]' : ' [Centralizada]'
+          const codRef = updated.codigo_referencia ? ` [${updated.codigo_referencia}]` : ''
+          await TransacaoService.create({
+            tipo: 'entrada',
+            descricao: `Recebimento de venda${codRef} - ${formTitulo}${tagForma}`,
+            categoria: 'comissao',
+            valor: round2(novoValorRecebidoAdicional),
+            data: formDataRecebimentoInicial
+              ? new Date(formDataRecebimentoInicial + 'T12:00:00.000Z').toISOString()
+              : dataRecebimentoIso,
+            data_competencia: dataCompetenciaIso,
+            data_vencimento: formDataRecebimentoInicial
+              ? new Date(formDataRecebimentoInicial + 'T12:00:00.000Z').toISOString()
+              : dataRecebimentoIso,
+            status: 'Pago',
+            consolidado: true,
+            venda: editingVenda.id,
+            user: user.id,
+          })
+        }
 
         const corretorObj = corretores.find((c) => c.id === formCorretorPrincipal)
         const captadoresObjs = finalCaptadores
@@ -732,6 +770,31 @@ export default function Vendas() {
     }
   }
 
+  const getSituacaoBadge = (situacao: SituacaoRecebimento) => {
+    switch (situacao) {
+      case 'Recebida':
+      case 'Recebido':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25">
+            <CheckCircle2 className="w-3 h-3" /> Recebida
+          </span>
+        )
+      case 'Parcial':
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-500/15 text-amber-400 border border-amber-500/25">
+            <Clock className="w-3 h-3" /> Parcial
+          </span>
+        )
+      case 'A Receber':
+      default:
+        return (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-500/15 text-blue-300 border border-blue-500/25">
+            <Clock className="w-3 h-3" /> A Receber
+          </span>
+        )
+    }
+  }
+
   const getFormaBadge = (forma?: FormaPagamento) => {
     if (forma === 'Separada') {
       return (
@@ -777,6 +840,79 @@ export default function Vendas() {
             <Plus className="w-4 h-4" />
             <span>Nova Entrada</span>
           </Button>
+        </div>
+      </div>
+
+      {/* Card de Resumo do Período: Previsto total · Recebido total · Saldo a receber */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5 w-full">
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 shadow-md flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              Previsto Total (Imob)
+            </span>
+            <span className="text-xl font-black text-white block mt-1 tabular-nums">
+              {formatCurrency(resumoPeriodo.previstoTotal)}
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              Parte líquida/bruta imobiliária
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-400 shrink-0">
+            <Building className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 shadow-md flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              Recebido Total
+            </span>
+            <span className="text-xl font-black text-emerald-400 block mt-1 tabular-nums">
+              {formatCurrency(resumoPeriodo.recebidoTotal)}
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              Entradas consolidadas no caixa
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400 shrink-0">
+            <CheckCircle2 className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 shadow-md flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              Saldo a Receber
+            </span>
+            <span
+              className={`text-xl font-black block mt-1 tabular-nums ${
+                resumoPeriodo.saldoTotal > 0 ? 'text-amber-400' : 'text-slate-400'
+              }`}
+            >
+              {formatCurrency(resumoPeriodo.saldoTotal)}
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">
+              Ainda pendente de entrada
+            </span>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-400 shrink-0">
+            <Clock className="w-5 h-5" />
+          </div>
+        </div>
+
+        <div className="bg-[#121722] border border-[#232A3B] rounded-2xl p-4 shadow-md flex items-center justify-between">
+          <div>
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
+              VGV Total ({resumoPeriodo.qtd} {resumoPeriodo.qtd === 1 ? 'venda' : 'vendas'})
+            </span>
+            <span className="text-xl font-black text-slate-200 block mt-1 tabular-nums">
+              {formatCurrency(resumoPeriodo.vgvTotal)}
+            </span>
+            <span className="text-[10px] text-slate-500 block mt-0.5">Volume total negociado</span>
+          </div>
+          <div className="w-10 h-10 rounded-xl bg-[#E63946]/10 border border-[#E63946]/20 flex items-center justify-center text-[#E63946] shrink-0">
+            <ArrowUpDown className="w-5 h-5" />
+          </div>
         </div>
       </div>
 
@@ -873,6 +1009,28 @@ export default function Vendas() {
             ))}
           </div>
 
+          {/* Filtro Situação de Recebimento */}
+          <div className="flex flex-wrap items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
+            {[
+              { id: 'todos', label: 'Situação' },
+              { id: 'A Receber', label: 'A Receber' },
+              { id: 'Parcial', label: 'Parcial' },
+              { id: 'Recebida', label: 'Recebida' },
+            ].map((s) => (
+              <button
+                key={s.id}
+                onClick={() => setRecebimentoFilter(s.id)}
+                className={`px-2.5 py-1 rounded-md font-medium transition-all ${
+                  recebimentoFilter === s.id
+                    ? 'bg-[#1A2234] text-white border border-[#232A3B]'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                {s.label}
+              </button>
+            ))}
+          </div>
+
           {/* Filtro Status */}
           <div className="flex flex-wrap items-center bg-[#0B0E14] border border-[#232A3B] rounded-lg p-1 text-xs">
             {['todos', 'realizada', 'pendente', 'cancelada'].map((st) => (
@@ -935,7 +1093,7 @@ export default function Vendas() {
       {/* Table */}
       <div className="bg-[#121722] border border-[#232A3B] rounded-2xl shadow-lg overflow-hidden w-full min-w-0">
         <div className="w-full overflow-x-auto scrollbar-thin scrollbar-thumb-[#232A3B]">
-          <table className="w-full min-w-[950px] text-left text-xs">
+          <table className="w-full min-w-[1150px] text-left text-xs">
             <thead>
               <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 font-semibold uppercase tracking-wider">
                 <th className="py-3.5 px-4 w-10 text-center">
@@ -953,30 +1111,30 @@ export default function Vendas() {
                     className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
                   />
                 </th>
-                <th className="py-3.5 px-4 min-w-[180px]">Imóvel & Cliente</th>
-                <th className="py-3.5 px-4 min-w-[90px]">Tipo</th>
-                <th className="py-3.5 px-4 min-w-[150px]">Corretor / Captador</th>
-                <th className="py-3.5 px-4 text-right min-w-[110px]">VGV / Valor</th>
-                <th className="py-3.5 px-4 text-right min-w-[120px]">Comissão Total</th>
+                <th className="py-3.5 px-4 min-w-[200px]">Código · Imóvel · Cliente</th>
+                <th className="py-3.5 px-4 min-w-[130px]">Corretor / Captador</th>
+                <th className="py-3.5 px-4 text-right min-w-[100px]">VGV</th>
+                <th className="py-3.5 px-4 text-right min-w-[105px]">Comissão Total</th>
                 <th className="py-3.5 px-4 text-center min-w-[95px]">Forma</th>
-                <th className="py-3.5 px-4 min-w-[100px]">Competência</th>
-                <th className="py-3.5 px-4 min-w-[100px]">Recebimento</th>
-                <th className="py-3.5 px-4 text-center min-w-[95px]">Status</th>
-                <th className="py-3.5 px-4 text-right min-w-[80px]">Ações</th>
+                <th className="py-3.5 px-4 text-right min-w-[105px]">Previsto (Imob)</th>
+                <th className="py-3.5 px-4 text-right min-w-[100px]">Recebido</th>
+                <th className="py-3.5 px-4 text-right min-w-[105px]">Saldo a Receber</th>
+                <th className="py-3.5 px-4 text-center min-w-[105px]">Situação</th>
+                <th className="py-3.5 px-4 text-right min-w-[130px]">Ações</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[#232A3B]">
               {filteredVendas.map((v) => {
                 const isSelected = selectedVendasIds.includes(v.id)
-                const situacao = v.situacao_recebimento || 'Recebido'
-                const dVenda = new Date(v.data_venda)
-                const compStr = dVenda.toLocaleDateString('pt-BR', {
-                  month: 'short',
-                  year: 'numeric',
-                })
-                const dtRecStr = v.data_recebimento
-                  ? new Date(v.data_recebimento).toLocaleDateString('pt-BR')
-                  : dVenda.toLocaleDateString('pt-BR')
+                const valorPrevisto = round2(v.valor_previsto_imobiliaria ?? v.valor_comissao)
+                const valorRecebido = round2(v.valor_recebido || 0)
+                const saldoAReceber = Math.max(0, round2(valorPrevisto - valorRecebido))
+                const situacaoDerivada: SituacaoRecebimento =
+                  valorRecebido >= valorPrevisto && valorPrevisto > 0
+                    ? 'Recebida'
+                    : valorRecebido > 0
+                      ? 'Parcial'
+                      : 'A Receber'
 
                 return (
                   <tr
@@ -994,13 +1152,11 @@ export default function Vendas() {
                         className="data-[state=checked]:bg-[#E63946] data-[state=checked]:border-[#E63946] border-[#343D52]"
                       />
                     </td>
-                    <td className="py-3.5 px-4 max-w-[220px]">
+                    <td className="py-3.5 px-4 max-w-[240px]">
                       <div className="flex items-center gap-1.5 flex-wrap">
-                        {v.codigo_referencia && (
-                          <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
-                            {v.codigo_referencia}
-                          </span>
-                        )}
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/25">
+                          {v.codigo_referencia || `VENDA-${v.id.substring(0, 8)}`}
+                        </span>
                         <span
                           className="font-semibold text-slate-100 truncate"
                           title={v.titulo_imovel}
@@ -1014,15 +1170,13 @@ export default function Vendas() {
                       >
                         <User className="w-3 h-3 text-slate-500 shrink-0" />
                         <span>{v.cliente || 'Cliente não informado'}</span>
+                        <span className="text-[10px] text-slate-500 ml-1">
+                          • {getTipoLabel(v.tipo_venda)}
+                        </span>
                       </div>
                     </td>
                     <td className="py-3.5 px-4">
-                      <span className="px-2 py-0.5 rounded bg-[#0B0E14] border border-[#232A3B] text-[11px] font-medium text-slate-300">
-                        {getTipoLabel(v.tipo_venda)}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4">
-                      <div className="font-medium text-slate-200">
+                      <div className="font-medium text-slate-200 truncate">
                         {v.expand?.corretor?.nome || 'Corretor'}
                       </div>
                       {(() => {
@@ -1030,13 +1184,13 @@ export default function Vendas() {
                         if (capts.length === 0) return null
                         if (capts.length === 1) {
                           return (
-                            <div className="text-[11px] text-amber-400/90 font-medium mt-0.5">
+                            <div className="text-[11px] text-amber-400/90 font-medium mt-0.5 truncate">
                               Captador: {capts[0].nome} (10%)
                             </div>
                           )
                         }
                         return (
-                          <div className="text-[11px] text-amber-400/90 font-medium mt-0.5">
+                          <div className="text-[11px] text-amber-400/90 font-medium mt-0.5 truncate">
                             <span className="text-amber-300 font-semibold">Captadores: </span>
                             {capts.map((c) => c.nome).join(' + ')}
                           </div>
@@ -1055,25 +1209,45 @@ export default function Vendas() {
                       )}
                     </td>
                     <td className="py-3.5 px-4 text-center">{getFormaBadge(v.forma_pagamento)}</td>
-                    <td className="py-3.5 px-4 text-slate-300 capitalize whitespace-nowrap">
-                      {compStr}
+                    <td className="py-3.5 px-4 text-right font-bold text-blue-300 tabular-nums">
+                      {formatCurrency(valorPrevisto)}
                     </td>
-                    <td className="py-3.5 px-4 text-slate-400 whitespace-nowrap">{dtRecStr}</td>
+                    <td className="py-3.5 px-4 text-right font-bold text-emerald-400 tabular-nums">
+                      {formatCurrency(valorRecebido)}
+                    </td>
+                    <td className="py-3.5 px-4 text-right font-bold tabular-nums">
+                      <span className={saldoAReceber > 0 ? 'text-amber-400' : 'text-slate-500'}>
+                        {formatCurrency(saldoAReceber)}
+                      </span>
+                    </td>
                     <td className="py-3.5 px-4 text-center">
                       <div className="flex flex-col items-center gap-1">
-                        {getStatusBadge(v.status)}
-                        {situacao === 'Parcial' && (
-                          <span
-                            className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30"
-                            title={`Recebido: ${formatCurrency(v.valor_recebido || 0)} de ${formatCurrency(v.valor_comissao)}`}
-                          >
-                            Parcial ({formatCurrency(v.valor_recebido || 0)})
-                          </span>
-                        )}
+                        {getSituacaoBadge(situacaoDerivada)}
                       </div>
                     </td>
                     <td className="py-3.5 px-4 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex items-center justify-end gap-1 flex-wrap">
+                        {saldoAReceber > 0 && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleOpenRecebimentoModal(v)}
+                            title="Registrar recebimento de valor no caixa"
+                            className="h-7 px-2 text-[11px] font-bold bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border-emerald-500/30 gap-1 rounded-lg"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>Receber</span>
+                          </Button>
+                        )}
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => handleOpenDetalhesModal(v)}
+                          title="Ver detalhes e recebimentos vinculados"
+                          className="h-7 w-7 text-slate-400 hover:text-white hover:bg-slate-700/50"
+                        >
+                          <Building className="w-3.5 h-3.5" />
+                        </Button>
                         <Button
                           variant="ghost"
                           size="icon"
@@ -1498,35 +1672,36 @@ export default function Vendas() {
                     </div>
                   </div>
 
-                  {/* Se situação Parcial, exibir repasses proporcionais à quantia recebida */}
-                  {formSituacaoRecebimento === 'Parcial' &&
+                  {/* Se houver recebimento inicial informado, exibir resumo proporcional */}
+                  {temRecebimentoInicial &&
+                    Number(formValorRecebidoInicial) > 0 &&
                     (() => {
                       const totalC = divisaoAoVivo.valorBase
-                      const recC = Number(formValorRecebido) || 0
-                      const fracao = totalC > 0 ? recC / totalC : 0
+                      const recC = Number(formValorRecebidoInicial) || 0
+                      const fracao = totalC > 0 ? Math.min(1, recC / totalC) : 0
                       return (
                         <div className="mt-2 pt-2 border-t border-amber-500/20 bg-amber-500/5 p-2 rounded-lg space-y-1.5">
                           <div className="flex items-center justify-between text-[10px] text-amber-300 font-bold uppercase">
                             <span>
-                              Repasses Desta Etapa ({formatCurrency(recC)} ·{' '}
+                              Recebimento Inicial ({formatCurrency(recC)} ·{' '}
                               {(fracao * 100).toFixed(1)}%):
                             </span>
-                            <span>Proporcional ao recebido</span>
+                            <span>Situação calculada automaticamente</span>
                           </div>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                             <div>
-                              <span className="text-[10px] text-slate-400 block">Imob Líq:</span>
+                              <span className="text-[10px] text-slate-400 block">
+                                Entrada no Caixa:
+                              </span>
                               <span className="font-bold text-emerald-400 tabular-nums">
-                                {formatCurrency(
-                                  round2(divisaoAoVivo.valorImobiliariaLiquido * fracao),
-                                )}
+                                {formatCurrency(recC)}
                               </span>
                             </div>
                             <div>
                               <span className="text-[10px] text-slate-400 block">Corretor:</span>
                               <span className="font-bold text-white tabular-nums">
                                 {formFormaPagamento === 'Separada'
-                                  ? 'Direto (sem fluxo)'
+                                  ? 'Direto (sem saída no caixa)'
                                   : formatCurrency(round2(divisaoAoVivo.valorCorretor * fracao))}
                               </span>
                             </div>
@@ -1534,16 +1709,18 @@ export default function Vendas() {
                               <span className="text-[10px] text-slate-400 block">Captador:</span>
                               <span className="font-bold text-white tabular-nums">
                                 {formFormaPagamento === 'Separada'
-                                  ? 'Direto (sem fluxo)'
+                                  ? 'Direto (sem saída no caixa)'
                                   : formatCurrency(
                                       round2(divisaoAoVivo.valorCaptadorTotal * fracao),
                                     )}
                               </span>
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">Imposto:</span>
+                              <span className="text-[10px] text-slate-400 block">
+                                Imposto Previsto:
+                              </span>
                               <span className="font-bold text-red-400 tabular-nums">
-                                {formatCurrency(round2(divisaoAoVivo.valorImposto * fracao))}
+                                {formatCurrency(divisaoAoVivo.valorImposto)}
                               </span>
                             </div>
                           </div>
@@ -1725,73 +1902,84 @@ export default function Vendas() {
               </div>
 
               {/* Recebimento Inicial (Opcional - Estilo UAU/Imoview) */}
-              {!editingVenda && (
-                <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <span className="text-xs font-bold text-white block">
-                        Recebimento Inicial Vinculado?
-                      </span>
-                      <span className="text-[11px] text-slate-400 block">
-                        Esta venda já tem uma entrada que caiu na conta agora?
-                      </span>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={temRecebimentoInicial}
-                        onChange={(e) => {
-                          const checked = e.target.checked
-                          setTemRecebimentoInicial(checked)
-                          if (checked && formValorRecebidoInicial === '') {
+              <div className="p-3.5 rounded-xl bg-[#0B0E14] border border-[#232A3B] space-y-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-white block">
+                      {editingVenda
+                        ? 'Registrar Novo Recebimento nesta Edição?'
+                        : 'Esta venda já tem um recebimento inicial?'}
+                    </span>
+                    <span className="text-[11px] text-slate-400 block">
+                      {editingVenda
+                        ? `Já recebido: ${formatCurrency(editingVenda.valor_recebido || 0)} • Saldo: ${formatCurrency(Math.max(0, round2((editingVenda.valor_previsto_imobiliaria ?? editingVenda.valor_comissao) - (editingVenda.valor_recebido || 0))))}`
+                        : 'Se preenchida, cria e consolida a entrada vinculada no caixa e calcula o saldo a receber.'}
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={temRecebimentoInicial}
+                      onChange={(e) => {
+                        const checked = e.target.checked
+                        setTemRecebimentoInicial(checked)
+                        if (checked && formValorRecebidoInicial === '') {
+                          if (editingVenda) {
+                            const saldo = Math.max(
+                              0,
+                              round2(
+                                (editingVenda.valor_previsto_imobiliaria ??
+                                  editingVenda.valor_comissao) - (editingVenda.valor_recebido || 0),
+                              ),
+                            )
+                            setFormValorRecebidoInicial(saldo > 0 ? saldo : '')
+                          } else {
                             // Sugerir previsto da imobiliária líquido
                             setFormValorRecebidoInicial(divisaoAoVivo.valorImobiliariaLiquido || '')
                           }
-                        }}
-                        className="sr-only peer"
-                      />
-                      <div className="w-9 h-5 bg-[#232A3B] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
-                    </label>
-                  </div>
-
-                  {temRecebimentoInicial && (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#232A3B]/60">
-                      <div>
-                        <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1">
-                          VALOR RECEBIDO (R$) *
-                        </label>
-                        <Input
-                          type="number"
-                          placeholder="Ex: 3525.00"
-                          value={formValorRecebidoInicial}
-                          onChange={(e) =>
-                            setFormValorRecebidoInicial(
-                              e.target.value ? Number(e.target.value) : '',
-                            )
-                          }
-                          className="bg-[#121722] border-emerald-500/50 text-xs h-9 text-white font-bold"
-                        />
-                        {formErrors.valorRecebidoInicial && (
-                          <p className="text-[10px] text-red-400 mt-0.5">
-                            {formErrors.valorRecebidoInicial}
-                          </p>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
-                          DATA DO RECEBIMENTO
-                        </label>
-                        <Input
-                          type="date"
-                          value={formDataRecebimentoInicial}
-                          onChange={(e) => setFormDataRecebimentoInicial(e.target.value)}
-                          className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
-                        />
-                      </div>
-                    </div>
-                  )}
+                        }
+                      }}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-[#232A3B] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-500"></div>
+                  </label>
                 </div>
-              )}
+
+                {temRecebimentoInicial && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#232A3B]/60">
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1">
+                        VALOR RECEBIDO (R$) *
+                      </label>
+                      <Input
+                        type="number"
+                        placeholder="Ex: 3525.00"
+                        value={formValorRecebidoInicial}
+                        onChange={(e) =>
+                          setFormValorRecebidoInicial(e.target.value ? Number(e.target.value) : '')
+                        }
+                        className="bg-[#121722] border-emerald-500/50 text-xs h-9 text-white font-bold"
+                      />
+                      {formErrors.valorRecebidoInicial && (
+                        <p className="text-[10px] text-red-400 mt-0.5">
+                          {formErrors.valorRecebidoInicial}
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1">
+                        DATA DO RECEBIMENTO
+                      </label>
+                      <Input
+                        type="date"
+                        value={formDataRecebimentoInicial}
+                        onChange={(e) => setFormDataRecebimentoInicial(e.target.value)}
+                        className="bg-[#121722] border-[#232A3B] text-xs h-9 text-slate-100"
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
 
             {/* Rodapé Fixo */}
@@ -1943,6 +2131,349 @@ export default function Vendas() {
                   selectedVendasIds.length > 1 ? 'Vendas' : 'Venda'
                 }`
               )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Registrar Recebimento */}
+      <Dialog open={isRecebimentoModalOpen} onOpenChange={setIsRecebimentoModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-md p-0 shadow-2xl rounded-2xl overflow-hidden">
+          <DialogHeader className="p-5 pb-3 border-b border-[#232A3B]/80 bg-[#121722] text-left">
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-sm font-black text-emerald-400 tracking-wider uppercase">
+                REGISTRAR RECEBIMENTO
+              </DialogTitle>
+              {selectedVendaParaRecebimento?.codigo_referencia && (
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30">
+                  {selectedVendaParaRecebimento.codigo_referencia}
+                </span>
+              )}
+            </div>
+            <DialogDescription className="text-xs text-slate-400 mt-1">
+              {selectedVendaParaRecebimento?.titulo_imovel} • Previsto:{' '}
+              <strong className="text-slate-200">
+                {formatCurrency(
+                  selectedVendaParaRecebimento
+                    ? round2(
+                        selectedVendaParaRecebimento.valor_previsto_imobiliaria ??
+                          selectedVendaParaRecebimento.valor_comissao,
+                      )
+                    : 0,
+                )}
+              </strong>
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="p-5 space-y-4">
+            <div className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B] text-xs space-y-1.5">
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Já Recebido Anteriormente:</span>
+                <span className="font-bold text-slate-200">
+                  {formatCurrency(selectedVendaParaRecebimento?.valor_recebido || 0)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between text-slate-400">
+                <span>Saldo Pendente Atual:</span>
+                <span className="font-bold text-amber-400">
+                  {formatCurrency(
+                    selectedVendaParaRecebimento
+                      ? Math.max(
+                          0,
+                          round2(
+                            (selectedVendaParaRecebimento.valor_previsto_imobiliaria ??
+                              selectedVendaParaRecebimento.valor_comissao) -
+                              (selectedVendaParaRecebimento.valor_recebido || 0),
+                          ),
+                        )
+                      : 0,
+                  )}
+                </span>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-emerald-400 mb-1.5">
+                VALOR RECEBIDO (R$) *
+              </label>
+              <Input
+                type="number"
+                step="0.01"
+                placeholder="Ex: 3525.00"
+                value={recComplementarValor}
+                onChange={(e) =>
+                  setRecComplementarValor(e.target.value !== '' ? Number(e.target.value) : '')
+                }
+                className="bg-[#0B0E14] border-emerald-500/50 text-white font-black text-sm h-11"
+              />
+              <p className="text-[10px] text-slate-400 mt-1">
+                Gera automaticamente uma transação de entrada vinculada no fluxo de caixa.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] font-bold uppercase tracking-wider text-slate-300 mb-1.5">
+                DATA DO RECEBIMENTO *
+              </label>
+              <div className="relative">
+                <Input
+                  type="date"
+                  value={recComplementarData}
+                  onChange={(e) => setRecComplementarData(e.target.value)}
+                  className="bg-[#0B0E14] border-[#232A3B] text-slate-100 text-xs h-10 pr-8"
+                />
+                <Calendar className="w-4 h-4 text-slate-500 absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="p-4 border-t border-[#232A3B]/80 bg-[#0E121B] flex flex-row items-center justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              disabled={savingRecebimento}
+              onClick={() => setIsRecebimentoModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234] text-xs h-9"
+            >
+              Cancelar
+            </Button>
+            <Button
+              type="button"
+              disabled={savingRecebimento}
+              onClick={handleConfirmRecebimentoComplementar}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-9 shadow-md"
+            >
+              {savingRecebimento ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin mr-1.5" /> Registrando...
+                </>
+              ) : (
+                'Confirmar Recebimento'
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Modal Detalhes da Venda & Recebimentos Vinculados */}
+      <Dialog open={isDetalhesModalOpen} onOpenChange={setIsDetalhesModalOpen}>
+        <DialogContent className="bg-[#121722] border-[#232A3B] text-slate-100 max-w-2xl p-0 shadow-2xl rounded-2xl overflow-hidden max-h-[90vh] flex flex-col">
+          <DialogHeader className="p-5 pb-3 border-b border-[#232A3B]/80 bg-[#121722] shrink-0 text-left">
+            <div className="flex items-center gap-2">
+              <DialogTitle className="text-sm sm:text-base font-black text-white tracking-wider uppercase">
+                DETALHES DA VENDA
+              </DialogTitle>
+              {detalhesVenda?.codigo_referencia && (
+                <span className="font-mono text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/15 text-red-300 border border-red-500/30">
+                  {detalhesVenda.codigo_referencia}
+                </span>
+              )}
+            </div>
+            <DialogDescription className="text-xs text-slate-400 mt-1">
+              {detalhesVenda?.titulo_imovel} • Cliente: {detalhesVenda?.cliente || 'Não informado'}
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="flex-1 overflow-y-auto p-5 space-y-4">
+            {/* Cards com resumo financeiro da venda */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <div className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">VGV</span>
+                <span className="text-sm font-bold text-white block mt-0.5 tabular-nums">
+                  {formatCurrency(detalhesVenda?.valor_vgv || 0)}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                  Comissão Total
+                </span>
+                <span className="text-sm font-bold text-slate-200 block mt-0.5 tabular-nums">
+                  {formatCurrency(detalhesVenda?.valor_comissao || 0)}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                  Previsto Imob
+                </span>
+                <span className="text-sm font-bold text-blue-300 block mt-0.5 tabular-nums">
+                  {formatCurrency(
+                    detalhesVenda
+                      ? round2(
+                          detalhesVenda.valor_previsto_imobiliaria ?? detalhesVenda.valor_comissao,
+                        )
+                      : 0,
+                  )}
+                </span>
+              </div>
+              <div className="p-3 rounded-xl bg-[#0B0E14] border border-[#232A3B]">
+                <span className="text-[10px] font-bold uppercase text-slate-400 block">
+                  Saldo a Receber
+                </span>
+                <span className="text-sm font-bold text-amber-400 block mt-0.5 tabular-nums">
+                  {formatCurrency(
+                    detalhesVenda
+                      ? Math.max(
+                          0,
+                          round2(
+                            (detalhesVenda.valor_previsto_imobiliaria ??
+                              detalhesVenda.valor_comissao) - (detalhesVenda.valor_recebido || 0),
+                          ),
+                        )
+                      : 0,
+                  )}
+                </span>
+              </div>
+            </div>
+
+            {/* Listagem de Recebimentos / Entradas Vinculadas */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                  Recebimentos Vinculados (Entradas no Caixa)
+                </h4>
+                <span className="text-[11px] text-slate-500">
+                  {detalhesTransacoes.filter((t) => t.tipo === 'entrada').length} registro(s)
+                </span>
+              </div>
+
+              {loadingDetalhes ? (
+                <div className="py-8 flex items-center justify-center text-slate-500 gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-xs">Carregando recebimentos...</span>
+                </div>
+              ) : (
+                <div className="border border-[#232A3B] rounded-xl overflow-hidden bg-[#0B0E14]">
+                  {detalhesTransacoes.filter((t) => t.tipo === 'entrada').length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-500">
+                      Nenhum recebimento vinculado a esta venda ainda.
+                    </div>
+                  ) : (
+                    <table className="w-full text-left text-xs">
+                      <thead>
+                        <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 text-[10px] font-bold uppercase">
+                          <th className="py-2.5 px-3">Data</th>
+                          <th className="py-2.5 px-3">Descrição / Origem</th>
+                          <th className="py-2.5 px-3 text-center">Origem</th>
+                          <th className="py-2.5 px-3 text-right">Valor</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#232A3B]">
+                        {detalhesTransacoes
+                          .filter((t) => t.tipo === 'entrada')
+                          .map((t) => {
+                            const isExtrato =
+                              t.descricao?.toLowerCase().includes('extrato') ||
+                              t.descricao?.toLowerCase().includes('import') ||
+                              t.observacoes?.toLowerCase().includes('extrato')
+                            const dtStr = new Date(t.data).toLocaleDateString('pt-BR')
+                            return (
+                              <tr key={t.id} className="hover:bg-[#1A2234]/30">
+                                <td className="py-2.5 px-3 text-slate-300 whitespace-nowrap">
+                                  {dtStr}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-200">
+                                  <span>{t.descricao}</span>
+                                </td>
+                                <td className="py-2.5 px-3 text-center">
+                                  <span
+                                    className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                                      isExtrato
+                                        ? 'bg-purple-500/15 text-purple-300 border border-purple-500/30'
+                                        : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                    }`}
+                                  >
+                                    {isExtrato ? 'Extrato' : 'Manual'}
+                                  </span>
+                                </td>
+                                <td className="py-2.5 px-3 text-right font-bold text-emerald-400 tabular-nums">
+                                  {formatCurrency(t.valor)}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Demais lançamentos vinculados (repasses ou impostos) */}
+            {detalhesTransacoes.filter((t) => t.tipo === 'saida').length > 0 && (
+              <div className="space-y-2 pt-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                  Saídas e Repasses Vinculados no Caixa
+                </h4>
+                <div className="border border-[#232A3B] rounded-xl overflow-hidden bg-[#0B0E14]">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#232A3B] bg-[#0E121B] text-slate-400 text-[10px] font-bold uppercase">
+                        <th className="py-2 px-3">Data</th>
+                        <th className="py-2 px-3">Descrição</th>
+                        <th className="py-2 px-3 text-center">Status</th>
+                        <th className="py-2 px-3 text-right">Valor</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#232A3B]">
+                      {detalhesTransacoes
+                        .filter((t) => t.tipo === 'saida')
+                        .map((t) => (
+                          <tr key={t.id} className="hover:bg-[#1A2234]/30">
+                            <td className="py-2 px-3 text-slate-400 whitespace-nowrap">
+                              {new Date(t.data).toLocaleDateString('pt-BR')}
+                            </td>
+                            <td className="py-2 px-3 text-slate-300">{t.descricao}</td>
+                            <td className="py-2 px-3 text-center">
+                              <span
+                                className={`px-1.5 py-0.5 rounded text-[10px] font-semibold ${
+                                  t.status === 'Pago'
+                                    ? 'bg-emerald-500/15 text-emerald-400'
+                                    : 'bg-amber-500/15 text-amber-400'
+                                }`}
+                              >
+                                {t.status || 'Pendente'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right font-bold text-red-400 tabular-nums">
+                              {formatCurrency(t.valor)}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <DialogFooter className="p-4 border-t border-[#232A3B]/80 bg-[#0E121B] flex flex-row items-center justify-between shrink-0">
+            {detalhesVenda &&
+              Math.max(
+                0,
+                round2(
+                  (detalhesVenda.valor_previsto_imobiliaria ?? detalhesVenda.valor_comissao) -
+                    (detalhesVenda.valor_recebido || 0),
+                ),
+              ) > 0 && (
+                <Button
+                  size="sm"
+                  onClick={() => {
+                    setIsDetalhesModalOpen(false)
+                    handleOpenRecebimentoModal(detalhesVenda)
+                  }}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs h-8 gap-1.5"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Registrar Recebimento</span>
+                </Button>
+              )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setIsDetalhesModalOpen(false)}
+              className="bg-transparent border-[#232A3B] text-slate-300 hover:bg-[#1A2234] text-xs h-8 ml-auto"
+            >
+              Fechar
             </Button>
           </DialogFooter>
         </DialogContent>
