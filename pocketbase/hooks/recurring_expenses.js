@@ -23,6 +23,7 @@ cronAdd('process_recurring_expenses', '0 0 * * *', () => {
       t.set('categoria', d.getString('categoria'))
       t.set('valor', d.getFloat('valor'))
       t.set('data', todayIso)
+      t.set('status', 'Pendente')
       t.set('consolidado', false)
       t.set('user', d.getString('user'))
       $app.save(t)

@@ -492,9 +492,11 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
           ? new Date(p.dataRecebimento + 'T12:00:00.000Z').toISOString()
           : dataCompetenciaIso
 
-        const finalVgv = p.modoCalculo === '%_vgv' ? Number(p.vgv) : p.vgv ? Number(p.vgv) : 0
+        const finalVgv = round2(
+          p.modoCalculo === '%_vgv' ? Number(p.vgv) : p.vgv ? Number(p.vgv) : 0,
+        )
         const finalPct = p.modoCalculo === '%_vgv' ? Number(p.pctNegociacao) : 0
-        const finalComissao = Number(p.valorComissao)
+        const finalComissao = round2(Number(p.valorComissao))
 
         // Se o valor da comissão for maior que o valor recebido, ou se foi selecionado 'Parcial', definir como Parcial
         const situacaoFinal: SituacaoRecebimento =
@@ -503,10 +505,11 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
             ? 'Parcial'
             : 'Recebido'
 
-        const finalRecebido =
+        const finalRecebido = round2(
           situacaoFinal === 'Parcial'
             ? Number(p.valorRecebido !== '' ? p.valorRecebido : totalTransacao)
-            : finalComissao
+            : finalComissao,
+        )
 
         const finalCaptadores = p.captadores.filter((c) => Boolean(c && c.trim()))
 
@@ -529,7 +532,7 @@ export const ConverterEmVendaModal: React.FC<ConverterEmVendaModalProps> = ({
           situacao_recebimento: situacaoFinal,
           valor_recebido: finalRecebido,
           data_venda: dataCompetenciaIso,
-          status: p.status,
+          status: p.status || 'realizada',
           userId: userId || transacao.user,
         })
 

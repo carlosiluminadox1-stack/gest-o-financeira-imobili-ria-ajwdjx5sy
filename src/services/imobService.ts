@@ -18,7 +18,7 @@ import {
   CategoriaFinanceira,
   CategoriaTipo,
 } from '@/types'
-import { calcularDivisaoComissao } from '@/lib/comissaoCalculator'
+import { calcularDivisaoComissao, round2 } from '@/lib/comissaoCalculator'
 
 // User Management Service
 export const UserService = {
@@ -167,11 +167,12 @@ export const VendaService = {
     }
 
     const valor_vgv =
-      data.valor_vgv !== undefined && data.valor_vgv !== null ? Number(data.valor_vgv) : 0
-    let valor_comissao =
+      data.valor_vgv !== undefined && data.valor_vgv !== null ? round2(Number(data.valor_vgv)) : 0
+    let valor_comissao = round2(
       data.valor_comissao !== undefined && data.valor_comissao !== null
         ? Number(data.valor_comissao)
-        : (valor_vgv * (Number(data.percentual_comissao) || 0)) / 100
+        : (valor_vgv * (Number(data.percentual_comissao) || 0)) / 100,
+    )
 
     let percentual_comissao =
       data.percentual_comissao !== undefined && data.percentual_comissao !== null
@@ -196,16 +197,17 @@ export const VendaService = {
     const primaryCaptador = captadoresList.length > 0 ? captadoresList[0] : undefined
 
     // No modo Separada, o valor que entra na conta da imobiliária é a cota da imobiliária
-    let valorRecebido =
-      situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao)
+    let valorRecebido = round2(
+      situacao === 'Recebido' ? valor_comissao : Number(data.valor_recebido ?? valor_comissao),
+    )
     if (forma === 'Separada') {
       const pctImobConfig = data.pct_imobiliaria ?? 50
-      const cotaImobBrutaTotal = (valor_comissao * pctImobConfig) / 100
+      const cotaImobBrutaTotal = round2((valor_comissao * pctImobConfig) / 100)
       if (situacao === 'Recebido') {
         valorRecebido = cotaImobBrutaTotal
       } else {
         // Se já foi informado um valor recebido específico (ex: parcela da imobiliária ou proporcional)
-        valorRecebido = Number(data.valor_recebido ?? cotaImobBrutaTotal)
+        valorRecebido = round2(Number(data.valor_recebido ?? cotaImobBrutaTotal))
       }
     }
 
@@ -299,24 +301,28 @@ export const VendaService = {
     const valor_vgv = data.valor_vgv !== undefined ? data.valor_vgv : prev.valor_vgv
     const percentual_comissao =
       data.percentual_comissao !== undefined ? data.percentual_comissao : prev.percentual_comissao
-    const valor_comissao =
+    const valor_comissao = round2(
       data.valor_comissao !== undefined
         ? data.valor_comissao
         : isValorFixo
           ? prev.valor_comissao
-          : (valor_vgv * percentual_comissao) / 100
+          : (valor_vgv * percentual_comissao) / 100,
+    )
 
     const forma = data.forma_pagamento ?? prev.forma_pagamento ?? 'Centralizada'
     const situacao = data.situacao_recebimento ?? prev.situacao_recebimento ?? 'Recebido'
-    let novoValorRecebido =
+    let novoValorRecebido = round2(
       situacao === 'Recebido'
         ? valor_comissao
-        : Number(data.valor_recebido ?? prev.valor_recebido ?? valor_comissao)
-
-    const prevValorRecebido = Number(
-      prev.valor_recebido ?? (prev.situacao_recebimento === 'Parcial' ? 0 : prev.valor_comissao),
+        : Number(data.valor_recebido ?? prev.valor_recebido ?? valor_comissao),
     )
-    const diferencaRecebida = novoValorRecebido - prevValorRecebido
+
+    const prevValorRecebido = round2(
+      Number(
+        prev.valor_recebido ?? (prev.situacao_recebimento === 'Parcial' ? 0 : prev.valor_comissao),
+      ),
+    )
+    const diferencaRecebida = round2(novoValorRecebido - prevValorRecebido)
 
     let captadoresList: string[] = []
     if (data.captadores !== undefined) {
@@ -560,7 +566,9 @@ export const VendaService = {
     // 1. Criar transação de Entrada (categoria "comissao")
     // MODO SEPARADA: ENTRA APENAS a parte da imobiliária (calc.valorImobiliariaBruto)
     // MODO CENTRALIZADA: ENTRA a comissão bruta total recebida (valorBase)
-    const valorEntradaCaixa = formaPagamento === 'Separada' ? calc.valorImobiliariaBruto : valorBase
+    const valorEntradaCaixa = round2(
+      formaPagamento === 'Separada' ? calc.valorImobiliariaBruto : valorBase,
+    )
 
     const tagForma = formaPagamento === 'Separada' ? ' [Separada]' : ' [Centralizada]'
     await pb.collection('transacoes').create({
@@ -571,7 +579,8 @@ export const VendaService = {
       data: dataIso,
       data_competencia: dataCompetencia || dataIso,
       data_vencimento: dataIso,
-      consolidado: false,
+      status: 'Pago',
+      consolidado: true,
       venda: vendaId,
       user: userId,
     })
@@ -583,10 +592,11 @@ export const VendaService = {
         tipo: 'saida',
         descricao: `Repasse comissão corretor (${corretorNome}) [Centralizada] - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
         categoria: 'repasse',
-        valor: valCorr,
+        valor: round2(valCorr),
         data: dataIso,
         data_competencia: dataCompetencia || dataIso,
         data_vencimento: dataIso,
+        status: 'Pendente',
         consolidado: false,
         venda: vendaId,
         user: userId,
@@ -604,10 +614,11 @@ export const VendaService = {
           tipo: 'saida',
           descricao: `Repasse comissão captador (${nomeCapt})${descDivisao} [Centralizada] - ${tituloImovel}${ehComplementar ? ' (Complementar)' : ''}`,
           categoria: 'repasse',
-          valor: valPorCaptador,
+          valor: round2(valPorCaptador),
           data: dataIso,
           data_competencia: dataCompetencia || dataIso,
           data_vencimento: dataIso,
+          status: 'Pendente',
           consolidado: false,
           venda: vendaId,
           user: userId,
@@ -623,10 +634,11 @@ export const VendaService = {
         tipo: 'saida',
         descricao: descImposto,
         categoria: 'imposto',
-        valor: valImposto,
+        valor: round2(valImposto),
         data: dataIso,
         data_competencia: dataCompetencia || dataIso,
         data_vencimento: dataIso,
+        status: 'Pendente',
         consolidado: false,
         venda: vendaId,
         user: userId,
@@ -639,7 +651,7 @@ export const VendaService = {
       venda: vendaId,
       parte: 'imobiliaria',
       percentual: calc.pctImobiliaria,
-      valor: valImobTotal,
+      valor: round2(valImobTotal),
       status: 'recebida',
       data_recebimento: dataIso,
       user: userId,
@@ -652,7 +664,7 @@ export const VendaService = {
         parte: 'corretor',
         corretor: corretorId,
         percentual: calc.pctCorretor,
-        valor: valCorr,
+        valor: round2(valCorr),
         status: 'pendente',
         user: userId,
       })
@@ -666,7 +678,7 @@ export const VendaService = {
           parte: 'captador',
           corretor: cId,
           percentual: pctPorCaptador,
-          valor: valPorCaptador,
+          valor: round2(valPorCaptador),
           status: 'pendente',
           user: userId,
         })
@@ -707,9 +719,10 @@ export const ComissaoService = {
       tipo: 'entrada',
       descricao: `Recebimento comissão - ${vendaTitulo}`,
       categoria: 'comissao',
-      valor: comissao.valor,
+      valor: round2(comissao.valor),
       data: todayIso,
-      consolidado: false,
+      status: 'Pago',
+      consolidado: true,
       venda: comissao.venda,
       comissao: comissao.id,
       user: userId,
@@ -725,14 +738,14 @@ export const ComissaoService = {
 
     // 4. Calculate 6% tax
     const taxa = 6
-    const valorImposto = (comissao.valor * taxa) / 100
+    const valorImposto = round2((comissao.valor * taxa) / 100)
 
     // 5. Create invoice
     await pb.collection('notas_fiscais').create({
       numero: nfNumero,
       venda: comissao.venda,
       cliente: clienteNome,
-      valor: comissao.valor,
+      valor: round2(comissao.valor),
       taxa,
       valor_imposto: valorImposto,
       data_emissao: todayIso,
@@ -747,6 +760,7 @@ export const ComissaoService = {
       categoria: 'imposto',
       valor: valorImposto,
       data: todayIso,
+      status: 'Pendente',
       consolidado: false,
       venda: comissao.venda,
       user: userId,
@@ -846,7 +860,14 @@ export const TransacaoService = {
     })
   },
   async create(data: Partial<Transacao>): Promise<Transacao> {
-    return await pb.collection('transacoes').create<Transacao>(data)
+    const payload: Partial<Transacao> = {
+      ...data,
+      status: data.status || (data.consolidado ? 'Pago' : 'Pendente'),
+    }
+    if (data.valor !== undefined) {
+      payload.valor = round2(data.valor)
+    }
+    return await pb.collection('transacoes').create<Transacao>(payload)
   },
   async createRecorrente(data: {
     tipo: TransacaoTipo
@@ -889,7 +910,7 @@ export const TransacaoService = {
         tipo: data.tipo,
         descricao: descFinal,
         categoria: data.categoria,
-        valor,
+        valor: round2(valor),
         data: registroDate.toISOString(),
         data_competencia: compDate ? compDate.toISOString() : undefined,
         data_vencimento: vencDate ? vencDate.toISOString() : undefined,
@@ -897,7 +918,6 @@ export const TransacaoService = {
         status: 'Pendente',
         user: data.user,
       }
-
       const rec = await this.create(payload)
       createdRecords.push(rec)
     }
@@ -905,7 +925,11 @@ export const TransacaoService = {
     return createdRecords
   },
   async update(id: string, data: Partial<Transacao>): Promise<Transacao> {
-    const updated = await pb.collection('transacoes').update<Transacao>(id, data)
+    const payload = { ...data }
+    if (payload.valor !== undefined) {
+      payload.valor = round2(payload.valor)
+    }
+    const updated = await pb.collection('transacoes').update<Transacao>(id, payload)
 
     // Se houver despesa vinculada e o status mudou, sincronizar despesa
     if (updated.despesa && (data.status !== undefined || data.consolidado !== undefined)) {
@@ -972,7 +996,7 @@ export const DespesaService = {
         tipo: 'saida',
         descricao: record.descricao,
         categoria: record.categoria,
-        valor: record.valor,
+        valor: round2(record.valor),
         data: record.data,
         data_competencia: record.data_competencia || null,
         data_vencimento: record.data_vencimento || null,
@@ -1087,7 +1111,7 @@ export const DespesaService = {
         tPayload.consolidado = isPaid
       }
       if (data.descricao !== undefined) tPayload.descricao = data.descricao
-      if (data.valor !== undefined) tPayload.valor = data.valor
+      if (data.valor !== undefined) tPayload.valor = round2(data.valor)
       if (data.categoria !== undefined) tPayload.categoria = data.categoria
       if (data.data !== undefined) tPayload.data = data.data
       if (data.data_competencia !== undefined) tPayload.data_competencia = data.data_competencia
